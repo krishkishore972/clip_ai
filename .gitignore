@@ -2,6 +2,8 @@
 
 # Dependencies
 node_modules
+design
+docs
 .pnp
 .pnp.js
 

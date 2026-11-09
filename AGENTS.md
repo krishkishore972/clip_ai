@@ -410,7 +410,7 @@ docs/
       b-roll.md                    [ ]
   product/
     feature-specifications.md      [ ]
-    acceptance-criteria.md         [ ]
+    acceptance-criteria.md         [x]
     parity-matrix.md               [ ]
   architecture/
     current-state.md               [ ]  Phase 0 deliverable
@@ -420,7 +420,7 @@ docs/
     job-processing.md              [ ]
     decisions.md                   [ ]  ADRs: context, options, decision, consequence
   implementation/
-    roadmap.md                     [ ]
+    roadmap.md                     [x]
     risks-and-open-questions.md    [ ]
 ```
 
@@ -442,7 +442,7 @@ Current status:
 | 0 — Repository & product discovery | **In progress** — scaffold verified, `docs/architecture/current-state.md` missing |
 | 1 — Reverse-engineer reference editor | **Complete for public surface** — `opus-pro-report/` |
 | 2 — Per-feature deep specs | **Partial** — inventory/analysis exist; `docs/research/workflows/*` not split out |
-| 3 — Product definition & prioritisation | Not started |
+| 3 — Product definition & prioritisation | **In progress** — MVP plan + acceptance criteria drafted, awaiting approval |
 | 4 — Architecture & data model | Not started |
 | 5 — Editor foundation | Not started |
 | 6 — Editing tools, one at a time | Not started |
