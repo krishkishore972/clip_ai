@@ -1,0 +1,12 @@
+{
+  "name": "api",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "make run",
+    "build": "make build",
+    "lint": "make lint",
+    "check-types": "go build ./...",
+    "test": "make test"
+  }
+}

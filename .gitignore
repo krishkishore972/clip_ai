@@ -29,6 +29,13 @@ out/
 build
 dist
 
+# Go build artifacts
+/apps/api/server
+/apps/api/bin/
+/apps/api/tmp/
+/apps/api/coverage.out
+/apps/api/coverage.html
+
 
 # Debug
 npm-debug.log*
