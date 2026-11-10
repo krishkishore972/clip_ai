@@ -1,7 +1,7 @@
 // Command server is the HTTP entrypoint for the API.
 //
-// It wires configuration, routing, and process lifecycle only. Feature logic
-// belongs in internal packages, not here.
+// It loads configuration, builds the route table, and owns the process
+// lifecycle. Feature logic belongs in internal packages, not here.
 package main
 
 import (
@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/krishkishore972/clip_ai/internal/config"
+	"github.com/krishkishore972/clip_ai/internal/httpserver"
 )
 
 // version is stamped at build time via -ldflags "-X main.version=<git describe>".
@@ -34,7 +35,7 @@ func main() {
 		Level: cfg.LogLevel,
 	}))
 
-	srv := newServer(cfg)
+	srv := httpserver.NewServer(cfg, newHandler(logger))
 
 	if err := run(srv, cfg.ShutdownTimeout, logger); err != nil {
 		logger.Error("server exited", "err", err)
@@ -42,22 +43,24 @@ func main() {
 	}
 }
 
-func newServer(cfg config.Config) *http.Server {
+// newHandler builds the route table and installs middleware. Add routes here
+// as features land; middleware order is outermost-first.
+func newHandler(logger *slog.Logger) http.Handler {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNoContent)
-	})
+	mux.HandleFunc("GET /healthz", health)
 
-	return &http.Server{
-		Addr:              cfg.Addr,
-		Handler:           mux,
-		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
-		ReadTimeout:       cfg.ReadTimeout,
-		WriteTimeout:      cfg.WriteTimeout,
-		IdleTimeout:       cfg.IdleTimeout,
-		MaxHeaderBytes:    1 << 20,
-	}
+	return httpserver.Chain(mux,
+		httpserver.RequestID,
+		httpserver.LogRequests(logger),
+		httpserver.Recover(logger),
+	)
+}
+
+// health reports process liveness only. It deliberately does not check
+// dependencies; a readiness endpoint will do that once the DB and queue exist.
+func health(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // run serves until SIGINT/SIGTERM, then drains in-flight requests before returning.

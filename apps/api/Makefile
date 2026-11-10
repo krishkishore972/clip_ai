@@ -8,7 +8,7 @@ SHELL := /bin/bash
 BIN_DIR := bin
 CMD_DIR := ./cmd
 GO      ?= go
-PORT    ?= 8080
+PORT    ?=
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 BUILD_FLAGS := -trimpath
@@ -38,9 +38,15 @@ build: ## Build every command under ./cmd into bin/
 
 ## ---- run ------------------------------------------------------------
 
+.PHONY: env
+env: ## Create .env from .env.example when missing
+	@test -s .env || cp .env.example .env
+	@echo "using ./.env"
+
 .PHONY: run
-run: ## Run the API server (make run PORT=9090)
-	API_ADDR=:$(PORT) $(GO) run $(CMD_DIR)/server
+run: ## Run the API server (make run PORT=9090 overrides API_ADDR)
+	@test -s .env || { echo "missing or empty .env; run 'make env' first" >&2; exit 1; }
+	$(if $(PORT),API_ADDR=:$(PORT)) $(GO) run $(CMD_DIR)/server
 
 ## ---- quality --------------------------------------------------------
 

@@ -1,11 +1,14 @@
 // Package config loads process configuration from environment variables.
 //
-// Load is called once at startup. It fails fast on malformed values, so a bad
-// deployment is visible immediately instead of silently falling back to a
-// default.
+// There are no defaults in code: every variable is required. The canonical
+// development values live in apps/api/.env.example (copied to .env, which the
+// Makefile exports to every target); deployed environments inject the same
+// keys directly. Load fails fast and reports every missing or malformed
+// variable in one error, so a misconfigured deployment is fixed in one pass.
 package config
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -13,84 +16,80 @@ import (
 	"time"
 )
 
-// Defaults, each overridable by the environment variable named in the comment.
-const (
-	defaultAddr              = ":8080"           // API_ADDR
-	defaultEnv               = "development"     // API_ENV
-	defaultLogLevel          = "info"            // API_LOG_LEVEL
-	defaultReadHeaderTimeout = 5 * time.Second   // API_READ_HEADER_TIMEOUT
-	defaultReadTimeout       = 30 * time.Second  // API_READ_TIMEOUT
-	defaultWriteTimeout      = 30 * time.Second  // API_WRITE_TIMEOUT
-	defaultIdleTimeout       = 120 * time.Second // API_IDLE_TIMEOUT
-	defaultShutdownTimeout   = 15 * time.Second  // API_SHUTDOWN_TIMEOUT
-)
-
 // Config is the resolved, validated configuration for the API process.
 type Config struct {
-	Addr              string        // host:port to listen on
-	Env               string        // "development", "test", "production"
-	LogLevel          slog.Level    // minimum level emitted to stdout
-	ReadHeaderTimeout time.Duration // slowloris protection
-	ReadTimeout       time.Duration // full request read budget
-	WriteTimeout      time.Duration // response write budget
-	IdleTimeout       time.Duration // keep-alive idle budget
-	ShutdownTimeout   time.Duration // drain budget on SIGTERM
+	Addr              string        // API_ADDR: host:port to listen on
+	Env               string        // API_ENV: "development", "test", "production"
+	LogLevel          slog.Level    // API_LOG_LEVEL: minimum level emitted to stdout
+	ReadHeaderTimeout time.Duration // API_READ_HEADER_TIMEOUT: slowloris protection
+	ReadTimeout       time.Duration // API_READ_TIMEOUT: full request read budget
+	WriteTimeout      time.Duration // API_WRITE_TIMEOUT: response write budget
+	IdleTimeout       time.Duration // API_IDLE_TIMEOUT: keep-alive idle budget
+	ShutdownTimeout   time.Duration // API_SHUTDOWN_TIMEOUT: drain budget on SIGTERM
 }
 
 // Load reads the environment into a Config and validates it.
 func Load() (Config, error) {
-	cfg := Config{
-		Addr: getString("API_ADDR", defaultAddr),
-		Env:  getString("API_ENV", defaultEnv),
+	var (
+		cfg  Config
+		errs []error
+	)
+
+	addr, err := required("API_ADDR")
+	if err != nil {
+		errs = append(errs, err)
+	}
+	cfg.Addr = addr
+
+	env, err := required("API_ENV")
+	if err != nil {
+		errs = append(errs, err)
+	}
+	cfg.Env = env
+
+	if cfg.LogLevel, err = requiredLevel("API_LOG_LEVEL"); err != nil {
+		errs = append(errs, err)
 	}
 
-	level, err := parseLevel(getString("API_LOG_LEVEL", defaultLogLevel))
-	if err != nil {
-		return Config{}, fmt.Errorf("config: API_LOG_LEVEL: %w", err)
-	}
-	cfg.LogLevel = level
-
-	cfg.ReadHeaderTimeout, err = getDuration("API_READ_HEADER_TIMEOUT", defaultReadHeaderTimeout)
-	if err != nil {
-		return Config{}, err
-	}
-
-	cfg.ReadTimeout, err = getDuration("API_READ_TIMEOUT", defaultReadTimeout)
-	if err != nil {
-		return Config{}, err
-	}
-
-	cfg.WriteTimeout, err = getDuration("API_WRITE_TIMEOUT", defaultWriteTimeout)
-	if err != nil {
-		return Config{}, err
+	for _, f := range []struct {
+		key string
+		dst *time.Duration
+	}{
+		{key: "API_READ_HEADER_TIMEOUT", dst: &cfg.ReadHeaderTimeout},
+		{key: "API_READ_TIMEOUT", dst: &cfg.ReadTimeout},
+		{key: "API_WRITE_TIMEOUT", dst: &cfg.WriteTimeout},
+		{key: "API_IDLE_TIMEOUT", dst: &cfg.IdleTimeout},
+		{key: "API_SHUTDOWN_TIMEOUT", dst: &cfg.ShutdownTimeout},
+	} {
+		d, err := requiredDuration(f.key)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		*f.dst = d
 	}
 
-	cfg.IdleTimeout, err = getDuration("API_IDLE_TIMEOUT", defaultIdleTimeout)
-	if err != nil {
-		return Config{}, err
-	}
-
-	cfg.ShutdownTimeout, err = getDuration("API_SHUTDOWN_TIMEOUT", defaultShutdownTimeout)
-	if err != nil {
-		return Config{}, err
+	if len(errs) > 0 {
+		return Config{}, errors.Join(errs...)
 	}
 
 	return cfg, nil
 }
 
-// getString returns the value of key, or def when unset or empty.
-func getString(key, def string) string {
-	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
-		return v
+// required returns the trimmed value of key, or an error when unset or empty.
+func required(key string) (string, error) {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return "", fmt.Errorf("config: %s is required", key)
 	}
-	return def
+	return v, nil
 }
 
-// getDuration parses key with time.ParseDuration (e.g. "30s", "2m").
-func getDuration(key string, def time.Duration) (time.Duration, error) {
-	raw := strings.TrimSpace(os.Getenv(key))
-	if raw == "" {
-		return def, nil
+// requiredDuration parses key with time.ParseDuration (e.g. "30s", "2m").
+func requiredDuration(key string) (time.Duration, error) {
+	raw, err := required(key)
+	if err != nil {
+		return 0, err
 	}
 
 	d, err := time.ParseDuration(raw)
@@ -101,6 +100,20 @@ func getDuration(key string, def time.Duration) (time.Duration, error) {
 		return 0, fmt.Errorf("config: %s=%q: must be positive", key, raw)
 	}
 	return d, nil
+}
+
+// requiredLevel reads a level-name variable and maps it to slog.Level.
+func requiredLevel(key string) (slog.Level, error) {
+	raw, err := required(key)
+	if err != nil {
+		return 0, err
+	}
+
+	level, err := parseLevel(raw)
+	if err != nil {
+		return 0, fmt.Errorf("config: %s: %w", key, err)
+	}
+	return level, nil
 }
 
 // parseLevel maps a level name to slog.Level, rejecting unknown names.
