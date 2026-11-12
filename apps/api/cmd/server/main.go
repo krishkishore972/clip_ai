@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/krishkishore972/clip_ai/internal/config"
+	"github.com/krishkishore972/clip_ai/internal/handler"
 	"github.com/krishkishore972/clip_ai/internal/httpserver"
 )
 
@@ -35,7 +36,7 @@ func main() {
 		Level: cfg.LogLevel,
 	}))
 
-	srv := httpserver.NewServer(cfg, newHandler(logger))
+	srv := httpserver.NewServer(cfg, newHandler(logger, cfg.Env, nil))
 
 	if err := run(srv, cfg.ShutdownTimeout, logger); err != nil {
 		logger.Error("server exited", "err", err)
@@ -45,10 +46,15 @@ func main() {
 
 // newHandler builds the route table and installs middleware. Add routes here
 // as features land; middleware order is outermost-first.
-func newHandler(logger *slog.Logger) http.Handler {
+func newHandler(logger *slog.Logger, env string, uploads handler.MultipartUploadService) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /healthz", health)
+	// Temporary development routes. Do not enable outside development until
+	// authentication and server-derived session ownership are implemented.
+	if env == "development" {
+		handler.NewMultipartUploadHandler(uploads, logger).Register(mux)
+	}
 
 	return httpserver.Chain(mux,
 		httpserver.RequestID,
@@ -64,6 +70,20 @@ func health(w http.ResponseWriter, r *http.Request) {
 }
 
 // run serves until SIGINT/SIGTERM, then drains in-flight requests before returning.
+/*
+Start listening
+      ↓
+Handle requests
+      ↓
+Wait for a server error or shutdown signal
+      ↓
+Stop accepting new requests
+      ↓
+Let active requests finish within a timeout
+      ↓
+Return
+*/
+
 func run(srv *http.Server, shutdownTimeout time.Duration, logger *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

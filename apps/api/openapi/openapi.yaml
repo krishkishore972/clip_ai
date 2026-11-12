@@ -1,0 +1,151 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Video AI API",
+    "version": "0.1.0",
+    "description": "[V] Handler-only development contract, 2026-11-12. JSON control requests for React Native direct-to-S3 uploads. No authentication or real S3/session service is connected. Routes exist only when API_ENV=development; otherwise they return 404. Valid requests currently return 503. No video bytes are accepted here."
+  },
+  "security": [],
+  "paths": {
+    "/uploads": {
+      "post": {
+        "operationId": "createMultipartUpload",
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateUploadRequest"}}}},
+        "responses": {
+          "201": {"$ref": "#/components/responses/UploadSession"},
+          "default": {"$ref": "#/components/responses/Error"}
+        }
+      }
+    },
+    "/uploads/{uploadId}": {
+      "parameters": [{"$ref": "#/components/parameters/UploadId"}],
+      "get": {
+        "operationId": "getMultipartUpload",
+        "description": "Session and authoritative uploaded-part status for resume. The future service must obtain and paginate S3 part listings.",
+        "responses": {
+          "200": {"$ref": "#/components/responses/UploadSession"},
+          "default": {"$ref": "#/components/responses/Error"}
+        }
+      },
+      "delete": {
+        "operationId": "abortMultipartUpload",
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "responses": {
+          "204": {"description": "Aborted; empty response body", "headers": {"Cache-Control": {"schema": {"type": "string", "const": "no-store"}}}},
+          "default": {"$ref": "#/components/responses/Error"}
+        }
+      }
+    },
+    "/uploads/{uploadId}/parts/sign": {
+      "parameters": [{"$ref": "#/components/parameters/UploadId"}],
+      "post": {
+        "operationId": "signMultipartUploadParts",
+        "description": "Refreshable signed UploadPart URLs. Send raw chunk bytes using PUT and the returned headers; do not send multipart/form-data. Future service checks session state, expected part count, ownership, and URL lifetime of at most 15 minutes.",
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SignUploadPartsRequest"}}}},
+        "responses": {
+          "200": {"description": "Signed parts", "headers": {"Cache-Control": {"schema": {"type": "string", "const": "no-store"}}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SignedUploadParts"}}}},
+          "default": {"$ref": "#/components/responses/Error"}
+        }
+      }
+    },
+    "/uploads/{uploadId}/complete": {
+      "parameters": [{"$ref": "#/components/parameters/UploadId"}],
+      "post": {
+        "operationId": "completeMultipartUpload",
+        "description": "Client ETags are advisory. The future service verifies actual S3 parts and sizes, sorts the part list, handles retries, and returns uploaded_unvalidated. Completion does not permit playback or AI analysis.",
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CompleteUploadRequest"}}}},
+        "responses": {
+          "200": {"$ref": "#/components/responses/UploadSession"},
+          "default": {"$ref": "#/components/responses/Error"}
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "IdempotencyKey": {"name": "Idempotency-Key", "in": "header", "required": true, "description": "Required on create, complete, and abort; future service persists replay results. Not a request ID.", "schema": {"$ref": "#/components/schemas/Token"}},
+      "UploadId": {"name": "uploadId", "in": "path", "required": true, "description": "Application session ID, never an S3 key or client-provided AWS upload ID", "schema": {"$ref": "#/components/schemas/Token"}}
+    },
+    "responses": {
+      "UploadSession": {
+        "description": "Upload session; not an accepted/validated media asset",
+        "headers": {"Cache-Control": {"schema": {"type": "string", "const": "no-store"}}},
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/UploadSession"}}}
+      },
+      "Error": {
+        "description": "400 invalid JSON/metadata/parts/session ID/idempotency key; 404 session missing; 409 state conflict; 413 body/file too large; 415 non-JSON content; 500 internal error; 503 no service connected or temporarily unavailable. Control JSON bodies are limited to 1 MiB. Router-level 404/405 responses use net/http defaults.",
+        "headers": {"Cache-Control": {"schema": {"type": "string", "const": "no-store"}}},
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/APIError"}}}
+      }
+    },
+    "schemas": {
+      "Token": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9_.:-]+$"},
+      "PartNumber": {"type": "integer", "minimum": 1, "maximum": 10000},
+      "CreateUploadRequest": {
+        "type": "object", "additionalProperties": false,
+        "required": ["filename", "sizeBytes", "contentType"],
+        "properties": {
+          "filename": {"type": "string", "minLength": 1, "maxLength": 255, "description": "At most 255 UTF-8 bytes, no control characters or path separators; extension must match contentType (case-insensitive extension). Metadata only, not a storage key."},
+          "sizeBytes": {"type": "integer", "format": "int64", "minimum": 1, "maximum": 2000000000},
+          "contentType": {"type": "string", "enum": ["video/mp4", "video/quicktime", "video/webm"]}
+        }
+      },
+      "SignUploadPartsRequest": {
+        "type": "object", "additionalProperties": false, "required": ["partNumbers"],
+        "properties": {"partNumbers": {"type": "array", "minItems": 1, "maxItems": 100, "uniqueItems": true, "items": {"$ref": "#/components/schemas/PartNumber"}}}
+      },
+      "CompleteUploadPart": {
+        "type": "object", "additionalProperties": false, "required": ["partNumber", "eTag"],
+        "properties": {
+          "partNumber": {"$ref": "#/components/schemas/PartNumber"},
+          "eTag": {"type": "string", "minLength": 1, "maxLength": 1024, "description": "Opaque ETag, preserving quotes. At most 1024 UTF-8 bytes, non-whitespace, without control characters. Not a file SHA-256."}
+        }
+      },
+      "CompleteUploadRequest": {
+        "type": "object", "additionalProperties": false, "required": ["parts"],
+        "properties": {"parts": {"type": "array", "minItems": 1, "maxItems": 10000, "description": "Part numbers must be unique, regardless of ETag", "items": {"$ref": "#/components/schemas/CompleteUploadPart"}}}
+      },
+      "UploadedPart": {
+        "type": "object", "required": ["partNumber", "eTag", "sizeBytes"],
+        "properties": {
+          "partNumber": {"$ref": "#/components/schemas/PartNumber"},
+          "eTag": {"type": "string"},
+          "sizeBytes": {"type": "integer", "format": "int64", "minimum": 0}
+        }
+      },
+      "UploadSession": {
+        "type": "object", "required": ["uploadId", "status", "partSizeBytes", "partCount", "expiresAt", "uploadedParts"],
+        "properties": {
+          "uploadId": {"$ref": "#/components/schemas/Token"},
+          "status": {"type": "string", "enum": ["uploading", "uploaded_unvalidated", "aborted"]},
+          "partSizeBytes": {"type": "integer", "format": "int64", "minimum": 1},
+          "partCount": {"type": "integer", "minimum": 1, "maximum": 10000},
+          "expiresAt": {"type": "string", "format": "date-time"},
+          "uploadedParts": {"type": ["array", "null"], "items": {"$ref": "#/components/schemas/UploadedPart"}}
+        }
+      },
+      "SignedUploadPart": {
+        "type": "object", "required": ["partNumber", "url", "headers", "expiresAt"],
+        "properties": {
+          "partNumber": {"$ref": "#/components/schemas/PartNumber"},
+          "url": {"type": "string", "format": "uri"},
+          "headers": {"type": ["object", "null"], "additionalProperties": {"type": "string"}},
+          "expiresAt": {"type": "string", "format": "date-time"}
+        }
+      },
+      "SignedUploadParts": {
+        "type": "object", "required": ["parts"],
+        "properties": {"parts": {"type": "array", "items": {"$ref": "#/components/schemas/SignedUploadPart"}}}
+      },
+      "APIError": {
+        "type": "object", "required": ["code", "message"],
+        "properties": {
+          "code": {"type": "string"}, "message": {"type": "string"},
+          "details": {}, "traceId": {"type": "string"}
+        }
+      }
+    }
+  }
+}

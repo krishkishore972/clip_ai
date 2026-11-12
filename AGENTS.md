@@ -22,15 +22,15 @@ Read this file, then `docs/implementation/roadmap.md`, before touching code.
 | Task | Command | Status |
 |---|---|---|
 | Install everything | `pnpm install` | Verified |
-| Run all dev servers | `pnpm dev` | Verified (web only, today) |
+| Run all dev servers | `pnpm dev` | [V] Web + API scripts exist; combined startup not re-verified 2026-11-12 |
 | Web dev server | `pnpm --filter web dev` → `http://localhost:3000` | Verified |
-| Build all | `pnpm build` | Verified (web only, today) |
+| Build all | `pnpm build` | [V] Web + API scripts exist; combined build not re-verified 2026-11-12 |
 | Lint all | `pnpm lint` | Verified |
 | Type-check all | `pnpm check-types` | Verified |
 | Format | `pnpm format` | Verified |
-| API dev server | `go run ./cmd/api` (from `apps/api`) | **Planned** — no `go.mod` yet |
-| API tests | `go test ./...` (from `apps/api`) | **Planned** |
-| API race tests | `go test -race ./...` (from `apps/api`) | **Planned** |
+| API dev server | `make env`, then `make run` (from `apps/api`) | [V] Entrypoint is `cmd/server`; startup not re-run 2026-11-12 |
+| API tests | `go test ./...` (from `apps/api`) | [V] Passed with race detector and coverage 2026-11-12 |
+| API race tests | `go test -race ./...` (from `apps/api`) | [V] Passed 2026-11-12 |
 | LLM service dev | `pnpm --filter llm dev` | **Planned** |
 | Contract regen | `pnpm gen:contracts` | **Planned** |
 | E2E tests | `pnpm test:e2e` | **Planned** |
@@ -74,14 +74,24 @@ Any claim in a doc, commit message, or final report must be one of these. "I thi
 
 ---
 
-## 2. Verified repository state (2026-11-06)
+## 2. Verified repository state (API re-verified 2026-11-12)
 
 This section exists so agents stop guessing. Re-verify before relying on it more than a few weeks out.
+
+[V] API files and checks below were re-verified on 2026-11-12. Other inventory retains its 2026-11-06 verification date unless noted; this is not a full repository re-audit.
 
 ```
 video_ai/
 ├── apps/
-│   ├── api/                  # EMPTY directory — Go backend goes here
+│   ├── api/                  # Go HTTP starter; no domain features yet
+│   │   ├── cmd/server/       # HTTP entrypoint, routes, graceful shutdown
+│   │   ├── internal/config/  # Environment configuration + tests
+│   │   ├── internal/httpserver/ # Server, middleware, JSON/errors + tests
+│   │   ├── go.mod            # Go 1.27.1; standard library only
+│   │   ├── Makefile          # Run/build/test/lint helpers; loads local .env
+│   │   ├── package.json      # pnpm/Turbo adapter for Go commands
+│   │   ├── turbo.json        # Adds bin/** to inherited build outputs
+│   │   └── .env.example      # Required environment keys and dev values
 │   └── web/                  # Next.js 16 App Router, React 19, TS
 ├── packages/
 │   ├── eslint-config/        # @repo/eslint-config
@@ -90,24 +100,29 @@ video_ai/
 ├── opus-pro-report/          # reference-product research (evidence only)
 ├── package.json              # root scripts: build/dev/lint/format/check-types
 ├── pnpm-workspace.yaml       # apps/* and packages/*
-├── turbo.json                # build/lint/check-types/dev tasks
+├── turbo.json                # build/lint/check-types/test/dev tasks
+├── docs/                     # Local product/implementation docs exist
 └── AGENTS.md
 ```
 
 Verified facts:
 
 - `apps/web` = Next.js `16.3.8`, React `19.2.8`, TypeScript `7.0.2`, ESLint `10.9.1`, App Router, dev on port `3000`, imports `@repo/ui`.
-- `apps/api` contains **no files**. No `go.mod`, no `cmd/`, no `internal/`.
-- There is **no** `apps/llm`, no `packages/contracts`, no `docs/`, no `docker-compose.yml`, no CI workflow, no database, no S3 client, no FFmpeg integration.
-- Root `turbo.json` declares only `build`, `lint`, `check-types`, `dev`. Build outputs are `.next/**` only.
-- `pnpm lint` and `pnpm check-types` both pass on the scaffold (run 2026-11-06). `pnpm dev` starts only `web`.
+- [V, 2026-11-12] `apps/api` is a Go module (`github.com/krishkishore972/clip_ai`, Go `1.27.1`) with AWS SDK for Go v2 dependencies. It has environment validation, structured JSON logging, request IDs, request logging, panic recovery, JSON/error helpers, HTTP timeouts, and graceful shutdown.
+- [V, 2026-11-12] `GET /healthz` returns `204 No Content` for process liveness. `internal/handler/multipart_upload.go` adds create/sign/status/complete/abort control endpoints under `/uploads`, registered only for `API_ENV=development`. Executable startup has no upload service connected: valid requests return `503 upload_service_unavailable`. Success paths use test doubles only; there is no live S3 upload functionality yet. The contract is `apps/api/openapi/openapi.yaml` (JSON-compatible YAML).
+- [V, 2026-11-12] `internal/storage/s3.go` provides an AWS SDK v2 adapter for initiate/presign/list/complete/abort/head operations, using the SDK default credential chain (CLI profiles/SSO supported). `config.LoadS3` separately loads bucket/region/signing TTL; blank placeholders in `.env.example` do not prevent handler-only startup. The adapter is not yet connected to an upload service. No worker, database integration, authentication, durable upload-session store, project/media/job implementation, or migrations exist yet. Unguarded development routes are not release-ready. Shared mobile contract generation remains deferred; current Go DTOs have lightweight contract drift checks, not full schema conformance/generation.
+- [V, 2026-11-12] `go test -race -cover ./...`, `make lint` (vet + formatting), and `go build ./...` pass from `apps/api` after the handler addition.
+- [V, 2026-11-12] HTTP hardening rejects trailing JSON delimiters/values via an EOF check, marshals responses before commitment with a generic `500` fallback, and aborts panicked committed responses rather than appending JSON. Regression tests cover these paths, including real HTTP connections. `WriteJSON` and `WriteError` now return errors for caller-side handling; callers must not write a second response. Streaming/WebSocket support remains deferred; these fixes do not establish production readiness.
+- [V, 2026-11-12] `docs/` exists locally, including the roadmap and acceptance criteria. The 2026-11-06 inventory recorded no `apps/llm`, `packages/contracts`, `docker-compose.yml`, or CI workflow; re-check those paths before relying on that older inventory.
+- [V, 2026-11-12] Root `turbo.json` declares `build`, `lint`, `check-types`, `test`, and `dev`. The API package extends root build outputs with `bin/**`.
+- [V] `pnpm lint` and `pnpm check-types` passed on the scaffold on 2026-11-06. API scripts now participate in monorepo orchestration; combined root commands were not re-run during the 2026-11-12 API review.
 - `opus-pro-report/` is **untracked** in git. Treat it as read-only evidence; do not refactor it, and do not let it drift into product code.
 
 ### What this means for you
 
 1. Most "existing conventions" you would expect in a video product do not exist yet. When you create them, you are setting the convention — so do it deliberately and document it in `docs/architecture/decisions.md`.
 2. Do not invent history. If something is missing, say "does not exist yet" rather than describing it as if it does.
-3. Creating the first `go.mod`, the LLM app, and the `docs/` tree are **Phase 0/4 tasks**, not incidental changes. Get them reviewed.
+3. The Go module and HTTP starter already exist; extend them rather than creating a second scaffold. Creating the LLM app and adding architectural foundations remain **Phase 0/4 tasks**, not incidental changes. Get them reviewed.
 
 ---
 
@@ -122,7 +137,7 @@ apps/
     components/               # editor shell, timeline, preview, inspector
     lib/                      # api client, editor state, media helpers
   api/                        # Go — the only writer to Postgres and object storage
-    cmd/api/                  # HTTP server entrypoint
+    cmd/server/               # Existing HTTP server entrypoint
     cmd/worker/               # job worker entrypoint
     internal/                 # config, httpserver, auth, project, media, job, render, store
     migrations/               # SQL migrations, forward-only + tested rollback
@@ -179,22 +194,24 @@ pnpm --filter web check-types
 pnpm --filter @repo/ui lint
 ```
 
-### Go API (planned — create before use)
+### Go API ([V] starter exists; checks verified 2026-11-12)
 
 ```bash
 cd apps/api
-go mod tidy
-go run ./cmd/api        # listens on :8080
-go run ./cmd/worker     # job worker
+make env                # creates local .env from .env.example if missing/empty
+make run                # loads .env; runs ./cmd/server (example address :8080)
+make build              # builds commands into bin/; current executable: bin/server
 go test ./...
 go test -race ./...
 go vet ./...
 gofmt -l .              # must print nothing
 ```
 
+[V] Direct `go run ./cmd/server` requires all documented environment variables to be injected; Go does not load `.env` itself. `cmd/worker` does not exist yet.
+
 ### How Turbo runs Go
 
-Turbo only orchestrates packages it can see. When `apps/api` and `apps/llm` are created, add a thin `package.json` to each so the existing root tasks cover them:
+[V] `apps/api/package.json` already exposes the Go tasks to pnpm/Turbo:
 
 ```jsonc
 // apps/api/package.json
@@ -202,16 +219,16 @@ Turbo only orchestrates packages it can see. When `apps/api` and `apps/llm` are 
   "name": "api",
   "private": true,
   "scripts": {
-    "dev": "go run ./cmd/api",
-    "build": "go build -o bin/api ./cmd/api && go build -o bin/worker ./cmd/worker",
-    "lint": "go vet ./...",
-    "test": "go test ./...",
+    "dev": "make run",
+    "build": "make build",
+    "lint": "make lint",
+    "test": "make test",
     "check-types": "go build ./..."
   }
 }
 ```
 
-Then add `bin/**` (api) and `dist/**` (llm) to the relevant `turbo.json` output lists. Read the installed Turbo docs first — the managed block at the top of this file says why.
+[V] `apps/api/turbo.json` already extends the root configuration and adds `bin/**` using `$TURBO_EXTENDS$`. When the planned LLM app is created, give it its own package scripts and configure its build outputs. Read the installed Turbo docs before changing orchestration — the managed block at the top of this file says why.
 
 Do not add `apps/api` or `apps/llm` to `pnpm-workspace.yaml` exclusions; the `apps/*` glob already covers them.
 
@@ -461,7 +478,7 @@ Prompt:
 
 > Act as a senior product engineer joining this project. Do not implement features.
 >
-> Inspect the full repo (already scaffolded: `apps/web`, empty `apps/api`, `packages/*`, `turbo.json`), run the documented commands, and record real results. Inventory what exists, what is reusable, and what is missing for a browser video editor. Identify languages, versions, and conventions already in use. Produce `docs/architecture/current-state.md` with a diagram and a gap analysis, and `docs/implementation/risks-and-open-questions.md`. Distinguish verified facts from recommendations. Do not modify application code.
+> Inspect the full repo (including `apps/web`, the Go HTTP starter in `apps/api`, `packages/*`, and `turbo.json`), run the documented commands, and record real results. Inventory what exists, what is reusable, and what is missing for a browser video editor. Identify languages, versions, and conventions already in use. Produce `docs/architecture/current-state.md` with a diagram and a gap analysis, and `docs/implementation/risks-and-open-questions.md`. Distinguish verified facts from recommendations. Do not modify application code.
 
 Exit: app runs or blockers are documented; capabilities inventoried; risks recorded; no app code changed.
 
@@ -664,8 +681,8 @@ Until answered, choose the option that adds the fewest dependencies and note it 
 | `apps/web/components/` | `timeline/`, `preview/`, `inspector/`, `panels/` |
 | `apps/web/lib/api/` | typed client from `packages/contracts`; never `fetch` raw in components |
 | `apps/web/lib/state/` | canonical project store, selection, playback clock |
-| `apps/api/cmd/api/` | HTTP entrypoint only — wiring, no business logic |
-| `apps/api/cmd/worker/` | worker entrypoint |
+| `apps/api/cmd/server/` | Existing HTTP entrypoint — wiring, no business logic |
+| `apps/api/cmd/worker/` | Planned worker entrypoint — does not exist yet |
 | `apps/api/internal/media/` | ffprobe/ffmpeg, validation, signed URLs |
 | `apps/api/internal/project/` | canonical document, commands, validation, versions |
 | `apps/api/internal/job/` | enqueue, claim, retry, cancel, progress |
@@ -692,4 +709,4 @@ Until answered, choose the option that adds the fewest dependencies and note it 
 
 ---
 
-*Last verified: 2026-11-06. If the repository has moved on, re-run §2 before trusting this file.*
+*Last verified: API starter and related guidance 2026-11-12; other inventory 2026-11-06 unless noted. If the repository has moved on, re-run §2 before trusting this file.*

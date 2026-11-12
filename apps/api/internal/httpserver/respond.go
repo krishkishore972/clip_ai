@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"mime"
 	"net/http"
 )
@@ -21,18 +22,29 @@ var (
 
 // WriteJSON writes v as JSON with the given status.
 //
-// If encoding fails after the status line is sent the response cannot be
-// repaired; callers should only pass values that are known to marshal.
-func WriteJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-
+// Values are marshaled before committing headers. Encoding failures produce a
+// generic 500; the returned error retains the cause for server-side handling.
+// Write failures are returned without attempting another response.
+func WriteJSON(w http.ResponseWriter, status int, v any) error {
 	if v == nil {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(status)
-		return
+		return nil
 	}
 
+	body, err := json.Marshal(v)
+	if err != nil {
+		err = fmt.Errorf("encode json: %w", err)
+		status = http.StatusInternalServerError
+		body = []byte(`{"code":"internal_error","message":"internal server error"}`)
+		w.Header().Del("Content-Length")
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	if _, writeErr := w.Write(append(body, '\n')); writeErr != nil {
+		return errors.Join(err, fmt.Errorf("write json: %w", writeErr))
+	}
+	return err
 }
 
 // DecodeJSON reads exactly one JSON value into T.
@@ -59,7 +71,12 @@ func DecodeJSON[T any](w http.ResponseWriter, r *http.Request) (T, error) {
 		return v, fmt.Errorf("decode json: %w", err)
 	}
 
-	if dec.More() {
+	var extra any
+	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			return v, ErrBodyTooLarge
+		}
 		return v, ErrTrailingData
 	}
 

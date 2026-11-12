@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestChainOrder(t *testing.T) {
@@ -181,5 +182,123 @@ func TestWriteErrorIncludesTraceID(t *testing.T) {
 	}
 	if body.TraceID != rec.Header().Get("X-Request-Id") {
 		t.Errorf("traceId %q does not match header %q", body.TraceID, rec.Header().Get("X-Request-Id"))
+	}
+}
+
+func TestRecoverAfterCommit(t *testing.T) {
+	t.Parallel()
+	for _, chained := range []bool{false, true} {
+		for _, body := range []string{"", "partial response"} {
+			var logs bytes.Buffer
+			logger := slog.New(slog.NewTextHandler(&logs, nil))
+			mw := []Middleware{RequestID, Recover(logger)}
+			if chained {
+				mw = []Middleware{RequestID, LogRequests(logger), Recover(logger)}
+			}
+			h := Chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/plain")
+				if body == "" {
+					w.WriteHeader(http.StatusAccepted)
+				} else {
+					_, _ = w.Write([]byte(body))
+				}
+				panic("boom")
+			}), mw...)
+			rec := httptest.NewRecorder()
+			func() {
+				defer func() {
+					if got := recover(); got != http.ErrAbortHandler {
+						t.Errorf("panic = %v, want ErrAbortHandler", got)
+					}
+				}()
+				h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+			}()
+			if rec.Body.String() != body || rec.Header().Get("Content-Type") != "text/plain" {
+				t.Fatalf("response changed: body=%q headers=%v", rec.Body.String(), rec.Header())
+			}
+			if !strings.Contains(logs.String(), "panic recovered") {
+				t.Fatal("panic not logged")
+			}
+			if chained && !strings.Contains(logs.String(), "http_request") {
+				t.Fatal("aborted request not logged")
+			}
+		}
+	}
+}
+
+func TestRecoverPreservesAbort(t *testing.T) {
+	t.Parallel()
+	var logs bytes.Buffer
+	h := Recover(slog.New(slog.NewTextHandler(&logs, nil)))(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		panic(http.ErrAbortHandler)
+	}))
+	w := httptest.NewRecorder()
+	defer func() {
+		if got := recover(); got != http.ErrAbortHandler {
+			t.Errorf("panic = %v, want ErrAbortHandler", got)
+		}
+		if w.Body.Len() != 0 || logs.Len() != 0 {
+			t.Error("explicit abort generated an error response or panic log")
+		}
+	}()
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
+}
+
+func TestRecoverRealConnection(t *testing.T) {
+	t.Parallel()
+	for _, size := range []int{7, 8192} {
+		t.Run(strconv.Itoa(size), func(t *testing.T) {
+			t.Parallel()
+			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			server := httptest.NewServer(Chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(strings.Repeat("x", size)))
+				panic("boom")
+			}), RequestID, LogRequests(logger), Recover(logger)))
+			defer server.Close()
+			client := server.Client()
+			client.Timeout = 5 * time.Second
+			response, err := client.Get(server.URL)
+			if err == nil {
+				defer response.Body.Close()
+				body, readErr := io.ReadAll(response.Body)
+				if readErr == nil {
+					t.Fatal("panicked request completed as a successful response")
+				}
+				if strings.Contains(string(body), "internal_error") {
+					t.Fatal("error JSON appended to partial response")
+				}
+			}
+		})
+	}
+}
+
+// Unlike httptest.ResponseRecorder, this writer records informational responses
+// separately so a subsequent final status can be asserted.
+type statusWriter struct {
+	*httptest.ResponseRecorder
+	statuses []int
+}
+
+func (w *statusWriter) WriteHeader(code int) {
+	w.statuses = append(w.statuses, code)
+	if code >= 200 || code == http.StatusSwitchingProtocols {
+		w.ResponseRecorder.WriteHeader(code)
+	}
+}
+
+func TestRecoverAfterInformationalResponse(t *testing.T) {
+	t.Parallel()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	w := &statusWriter{ResponseRecorder: httptest.NewRecorder()}
+	h := Recover(logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusEarlyHints)
+		panic("boom")
+	}))
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
+	if !slices.Equal(w.statuses, []int{http.StatusEarlyHints, http.StatusInternalServerError}) {
+		t.Fatalf("statuses = %v, want [103 500]", w.statuses)
+	}
+	if !json.Valid(w.Body.Bytes()) {
+		t.Fatal("missing JSON error")
 	}
 }

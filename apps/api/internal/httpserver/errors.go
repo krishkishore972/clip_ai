@@ -13,9 +13,10 @@ type APIError struct {
 	TraceID string `json:"traceId,omitempty"`
 }
 
-// WriteError writes an APIError response. details may be nil.
-func WriteError(w http.ResponseWriter, r *http.Request, status int, code, message string, details any) {
-	WriteJSON(w, status, APIError{
+// WriteError writes an APIError response. details may be nil. As with WriteJSON,
+// returned encoding/write errors are for logging, not writing another response.
+func WriteError(w http.ResponseWriter, r *http.Request, status int, code, message string, details any) error {
+	return WriteJSON(w, status, APIError{
 		Code:    code,
 		Message: message,
 		Details: details,

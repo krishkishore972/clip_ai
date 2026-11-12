@@ -60,6 +60,12 @@ func (r *recorder) WriteHeader(code int) {
 	if r.status != 0 {
 		return
 	}
+	// Informational responses may precede a final response. A protocol switch
+	// is different: after 101, an HTTP error response is no longer possible.
+	if code >= 100 && code < 200 && code != http.StatusSwitchingProtocols {
+		r.ResponseWriter.WriteHeader(code)
+		return
+	}
 	r.status = code
 	r.ResponseWriter.WriteHeader(code)
 }
@@ -80,45 +86,62 @@ func LogRequests(log *slog.Logger) Middleware {
 			start := time.Now()
 			rec := &recorder{ResponseWriter: w}
 
+			defer func() {
+				if rec.status == 0 {
+					rec.status = http.StatusOK
+				}
+
+				log.InfoContext(r.Context(), "http_request",
+					"method", r.Method,
+					"path", r.URL.Path,
+					"status", rec.status,
+					"bytes", rec.bytes,
+					"duration_ms", time.Since(start).Milliseconds(),
+					"trace_id", TraceIDFromContext(r.Context()),
+				)
+			}()
+
 			next.ServeHTTP(rec, r)
-
-			if rec.status == 0 {
-				rec.status = http.StatusOK
-			}
-
-			log.InfoContext(r.Context(), "http_request",
-				"method", r.Method,
-				"path", r.URL.Path,
-				"status", rec.status,
-				"bytes", rec.bytes,
-				"duration_ms", time.Since(start).Milliseconds(),
-				"trace_id", TraceIDFromContext(r.Context()),
-			)
 		})
 	}
 }
 
 // Recover turns a handler panic into a logged 500 with an APIError body.
 //
-// If the handler already wrote a status line, the body cannot be replaced; the
-// panic is still logged and the connection is left as-is.
+// Once a final response has started, log the panic and abort the response via
+// net/http rather than append an error body to an already committed response.
 func Recover(log *slog.Logger) Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Track commitment even when Recover is installed without LogRequests.
+			rw, ok := w.(*recorder)
+			if !ok {
+				rw = &recorder{ResponseWriter: w}
+			}
 			defer func() {
 				if rec := recover(); rec != nil {
+					if rec == http.ErrAbortHandler {
+						panic(rec)
+					}
 					log.ErrorContext(r.Context(), "panic recovered",
 						"panic", rec,
 						"stack", string(debug.Stack()),
 						"trace_id", TraceIDFromContext(r.Context()),
 					)
 
-					WriteError(w, r, http.StatusInternalServerError,
-						"internal_error", "internal server error", nil)
+					if rw.status != 0 {
+						panic(http.ErrAbortHandler)
+					}
+					rw.Header().Del("Content-Length")
+					if err := WriteError(rw, r, http.StatusInternalServerError,
+						"internal_error", "internal server error", nil); err != nil {
+						log.ErrorContext(r.Context(), "write recovery response", "err", err,
+							"trace_id", TraceIDFromContext(r.Context()))
+					}
 				}
 			}()
 
-			next.ServeHTTP(w, r)
+			next.ServeHTTP(rw, r)
 		})
 	}
 }
