@@ -8,7 +8,9 @@ import type {
 } from "./generated";
 
 export class AuthenticationRequired extends Error {
-  constructor() { super("Your session expired. Sign out and sign in again."); }
+  constructor() {
+    super("Your session expired. Sign out and sign in again.");
+  }
 }
 
 // Use fetch directly; tests supply an offline fetch instead of contacting AWS.
@@ -71,7 +73,11 @@ export function createUploadApi(
   async function authorization(signal: AbortSignal) {
     signal.throwIfAborted();
     let token: string | null;
-    try { token = await getToken(); } catch { throw new AuthenticationRequired(); }
+    try {
+      token = await getToken();
+    } catch {
+      throw new AuthenticationRequired();
+    }
     signal.throwIfAborted();
     if (!token) throw new AuthenticationRequired();
     return { Authorization: `Bearer ${token}` };
@@ -90,7 +96,7 @@ export function createUploadApi(
         method,
         headers: {
           Accept: "application/json",
-          ...await authorization(signal),
+          ...(await authorization(signal)),
           ...(body === undefined ? {} : { "Content-Type": "application/json" }),
           ...(session ? { "Upload-Token": session.uploadToken } : {}),
         },
@@ -114,13 +120,29 @@ export function createUploadApi(
     `/${encodeURIComponent(session.uploadId)}`;
   return {
     async me(signal: AbortSignal): Promise<Me> {
-      return send(`${url}/me`, { method:"GET", headers:{ Accept:"application/json", ...await authorization(signal) } }, signal, async response => {
-        if (response.status === 401) throw new AuthenticationRequired();
-        if (response.status !== 200) throw new Error("Could not load your account.");
-        const data: Me = await response.json();
-        if (typeof data?.userId !== "string" || typeof data?.workspaceId !== "string") throw new Error("Invalid account response.");
-        return data;
-      });
+      return send(
+        `${url}/me`,
+        {
+          method: "GET",
+          headers: {
+            Accept: "application/json",
+            ...(await authorization(signal)),
+          },
+        },
+        signal,
+        async (response) => {
+          if (response.status === 401) throw new AuthenticationRequired();
+          if (response.status !== 200)
+            throw new Error("Could not load your account.");
+          const data: Me = await response.json();
+          if (
+            typeof data?.userId !== "string" ||
+            typeof data?.workspaceId !== "string"
+          )
+            throw new Error("Invalid account response.");
+          return data;
+        },
+      );
     },
     create: (file: CreateUploadRequest, signal: AbortSignal) =>
       request<UploadSession>("", "POST", signal, undefined, file),

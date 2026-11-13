@@ -1,6 +1,11 @@
 // Generated from apps/api/openapi/openapi.yaml. Do not edit.
 // Regenerate: pnpm --filter mobile gen:api
 
+export type Me = {
+  "userId": string;
+  "workspaceId": string;
+};
+
 export type Token = string;
 
 export type PartNumber = number;

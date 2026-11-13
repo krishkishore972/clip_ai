@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 )
 
@@ -20,6 +21,16 @@ func newID() string {
 // No profile claims or email addresses are accepted as linkage keys.
 func (s Store) Resolve(ctx context.Context, issuer, subject string) (Principal, error) {
 	var p Principal
+	err := s.DB.QueryRowContext(ctx, `SELECT u.id,w.id FROM users u
+		JOIN workspaces w ON w.personal_user_id=u.id
+		JOIN workspace_members m ON m.workspace_id=w.id AND m.user_id=u.id AND m.role='owner'
+		WHERE u.clerk_issuer=$1 AND u.clerk_subject=$2`, issuer, subject).Scan(&p.UserID, &p.WorkspaceID)
+	if err == nil {
+		return p, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return Principal{}, fmt.Errorf("find user: %w", err)
+	}
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return p, fmt.Errorf("begin user transaction: %w", err)

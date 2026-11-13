@@ -4,7 +4,7 @@ package auth
 import "context"
 
 type Principal struct {
-	UserID string `json:"userId"`
+	UserID      string `json:"userId"`
 	WorkspaceID string `json:"workspaceId"`
 }
 

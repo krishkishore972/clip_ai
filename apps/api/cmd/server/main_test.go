@@ -57,15 +57,15 @@ func TestUploadRoutesDevelopmentOnly(t *testing.T) {
 
 func TestDevelopmentUploadsStartup(t *testing.T) {
 	t.Setenv("DEV_S3_UPLOAD_ENABLED", "false")
-	if service, err := developmentUploads(context.Background(), "development",upload.SQLAssets{}); err != nil || service != nil {
+	if service, err := developmentUploads(context.Background(), "development", upload.SQLAssets{}); err != nil || service != nil {
 		t.Fatal("disabled startup attempted upload initialization")
 	}
 	t.Setenv("DEV_S3_UPLOAD_ENABLED", "true")
-	if _, err := developmentUploads(context.Background(), "production",upload.SQLAssets{}); err == nil {
+	if _, err := developmentUploads(context.Background(), "production", upload.SQLAssets{}); err == nil {
 		t.Fatal("production enabled unguarded uploads")
 	}
 	t.Setenv("AWS_REGION", "")
-	if _, err := developmentUploads(context.Background(), "development",upload.SQLAssets{}); err == nil {
+	if _, err := developmentUploads(context.Background(), "development", upload.SQLAssets{}); err == nil {
 		t.Fatal("enabled startup accepted missing configuration")
 	}
 	// Construct the real adapter with isolated fake credentials. No upload request
@@ -80,7 +80,7 @@ func TestDevelopmentUploadsStartup(t *testing.T) {
 	} {
 		t.Setenv(key, value)
 	}
-	if service, err := developmentUploads(context.Background(), "development",upload.SQLAssets{}); err != nil || service == nil {
+	if service, err := developmentUploads(context.Background(), "development", upload.SQLAssets{}); err != nil || service == nil {
 		t.Fatalf("SDK/service composition failed: %v", err)
 	}
 }
@@ -92,5 +92,20 @@ func TestHealthRouteUnchanged(t *testing.T) {
 	newHandler(logger, "production", nil).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 	if w.Code != http.StatusNoContent || w.Body.Len() != 0 {
 		t.Fatalf("status=%d body=%q", w.Code, w.Body.String())
+	}
+}
+
+func TestAllPrivateRoutesFailClosed(t *testing.T) {
+	t.Parallel()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	h := newHandler(logger, "development", nil)
+	for _, endpoint := range []struct{ method, path string }{
+		{"GET", "/me"}, {"POST", "/uploads"}, {"GET", "/uploads/a"}, {"POST", "/uploads/a/parts/sign"}, {"POST", "/uploads/a/complete"}, {"DELETE", "/uploads/a"},
+	} {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest(endpoint.method, endpoint.path, nil))
+		if w.Code != http.StatusUnauthorized || !strings.Contains(w.Body.String(), "UNAUTHENTICATED") || w.Header().Get("Cache-Control") != "no-store" {
+			t.Fatalf("unprotected endpoint %s %s", endpoint.method, endpoint.path)
+		}
 	}
 }

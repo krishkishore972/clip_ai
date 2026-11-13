@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/krishkishore972/clip_ai/internal/storage"
 	"github.com/krishkishore972/clip_ai/internal/auth"
+	"github.com/krishkishore972/clip_ai/internal/storage"
 )
 
 // An offline S3 double, not an application session store or runtime fallback.
@@ -115,13 +115,22 @@ func (f *storeStub) Head(ctx context.Context, key string) (storage.ObjectInfo, e
 }
 
 func testConfig() Config {
-	return Config{Assets:&assetStub{}, Bucket:"test-bucket", SigningSecret: []byte(strings.Repeat("test-key-", 8)), Scope: "test-region/test-bucket",
+	return Config{Assets: &assetStub{}, Bucket: "test-bucket", SigningSecret: []byte(strings.Repeat("test-key-", 8)), Scope: "test-region/test-bucket",
 		TokenTTL: time.Hour, PresignTTL: 15 * time.Minute}
 }
 
-type assetStub struct { err error; saved []CompletedAsset }
-func (s *assetStub) SaveCompleted(_ context.Context,a CompletedAsset) error { s.saved=append(s.saved,a);return s.err }
-func ownerContext() context.Context { return auth.WithPrincipal(context.Background(),auth.Principal{UserID:"test-user",WorkspaceID:"test-workspace"}) }
+type assetStub struct {
+	err   error
+	saved []CompletedAsset
+}
+
+func (s *assetStub) SaveCompleted(_ context.Context, a CompletedAsset) error {
+	s.saved = append(s.saved, a)
+	return s.err
+}
+func ownerContext() context.Context {
+	return auth.WithPrincipal(context.Background(), auth.Principal{UserID: "test-user", WorkspaceID: "test-workspace"})
+}
 
 func testService(t *testing.T) (*Service, *storeStub) {
 	t.Helper()
@@ -146,6 +155,67 @@ func start(t *testing.T, s *Service, size int64) UploadSession {
 
 func accessFor(state UploadSession) Access {
 	return Access{UploadID: state.UploadID, Token: state.UploadToken}
+}
+
+func TestUploadOwnershipAndLegacyTokens(t *testing.T) {
+	t.Parallel()
+	s, f := testService(t)
+	state := start(t, s, 1024)
+	for _, p := range []auth.Principal{{UserID: "other-user", WorkspaceID: "other-workspace"}, {UserID: "other-user", WorkspaceID: "test-workspace"}, {UserID: "test-user", WorkspaceID: "other-workspace"}} {
+		ctx := auth.WithPrincipal(context.Background(), p)
+		before := len(f.calls)
+		checks := []func() error{
+			func() error { _, err := s.Get(ctx, accessFor(state)); return err },
+			func() error { _, err := s.SignParts(ctx, accessFor(state), []int{1}); return err },
+			func() error { _, err := s.Complete(ctx, accessFor(state), CompleteUploadRequest{}); return err },
+			func() error { return s.Abort(ctx, accessFor(state)) },
+		}
+		for _, check := range checks {
+			if err := check(); !errors.Is(err, ErrNotFound) {
+				t.Fatalf("cross-owner request was not hidden: %v", err)
+			}
+		}
+		if len(f.calls) != before {
+			t.Fatal("cross-owner request reached S3")
+		}
+	}
+	if _, err := s.Create(context.Background(), CreateUploadRequest{Filename: "a.mp4", ContentType: "video/mp4", SizeBytes: 1}); !errors.Is(err, ErrUnauthenticated) {
+		t.Fatal("unauthenticated create accepted")
+	}
+	c, err := s.verify(ownerContext(), accessFor(state))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.V = 1
+	c.UserID = ""
+	c.WorkspaceID = ""
+	legacy, err := s.sign(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Get(ownerContext(), Access{UploadID: state.UploadID, Token: legacy}); !errors.Is(err, ErrToken) {
+		t.Fatal("legacy upload token accepted")
+	}
+}
+
+func TestCompletionPersistenceFailureIsRecoverable(t *testing.T) {
+	t.Parallel()
+	s, f := testService(t)
+	records := s.assets.(*assetStub)
+	state := start(t, s, 1024)
+	f.parts = []storage.Part{{Number: 1, ETag: "tag", SizeBytes: 1024}}
+	records.err = errors.New("database offline")
+	in := CompleteUploadRequest{Parts: []CompleteUploadPart{{PartNumber: 1, ETag: "tag"}}}
+	if _, err := s.Complete(ownerContext(), accessFor(state), in); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("unpersisted completion returned success: %v", err)
+	}
+	records.err = nil
+	if _, err := s.Complete(ownerContext(), accessFor(state), in); err != nil {
+		t.Fatal(err)
+	}
+	if count(f.calls, "complete") != 1 || records.saved[len(records.saved)-1].Filename != "sample.mp4" {
+		t.Fatal("retry repeated S3 completion or lost signed filename")
+	}
 }
 
 func TestCreateAndSign(t *testing.T) {

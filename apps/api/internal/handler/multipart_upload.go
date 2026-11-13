@@ -57,7 +57,8 @@ type UploadSessions interface {
 }
 
 // MultipartUploadService is injected; handlers do not store sessions or call AWS.
-// Production adapters must additionally enforce server-derived ownership.
+// Implementations must enforce server-derived ownership in addition to the
+// session verification middleware that wraps the registered routes.
 type MultipartUploadService interface {
 	UploadCreator
 	UploadPartSigner
@@ -74,7 +75,8 @@ func NewMultipartUploadHandler(service MultipartUploadService, logger *slog.Logg
 }
 
 // Register installs JSON control endpoints, not multipart/form-data endpoints.
-// The caller must restrict registration to development until auth is implemented.
+// The caller must wrap these routes with authentication and keep the current
+// development restriction until media validation/release hardening is complete.
 func (h *MultipartUploadHandler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /uploads", h.Create)
 	mux.HandleFunc("POST /uploads/{uploadId}/parts/sign", h.SignParts)
@@ -270,7 +272,7 @@ func (h *MultipartUploadHandler) available(w http.ResponseWriter, r *http.Reques
 func (h *MultipartUploadHandler) serviceError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, upload.ErrUnauthenticated):
-		h.fail(w,r,http.StatusUnauthorized,"UNAUTHENTICATED","Sign in to continue.")
+		h.fail(w, r, http.StatusUnauthorized, "UNAUTHENTICATED", "Sign in to continue.")
 	case errors.Is(err, upload.ErrToken):
 		h.fail(w, r, http.StatusForbidden, "invalid_upload_token", "upload token is invalid or expired")
 	case errors.Is(err, ErrUploadNotFound):

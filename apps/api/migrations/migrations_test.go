@@ -64,11 +64,11 @@ func TestMediaAssetsMigration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	up, err := provider.Up(ctx)
+	up, err := provider.UpTo(ctx, 1)
 	if err != nil || len(up) != 1 || up[0].Source.Version != 1 {
 		t.Fatalf("initial Up: results=%v error=%v", up, err)
 	}
-	if again, err := provider.Up(ctx); err != nil || len(again) != 0 {
+	if again, err := provider.UpTo(ctx, 1); err != nil || len(again) != 0 {
 		t.Fatalf("repeat Up should be a no-op: %v", err)
 	}
 
@@ -168,13 +168,14 @@ func TestMediaAssetsMigration(t *testing.T) {
 	if err := pool.QueryRowContext(ctx, "SELECT to_regclass('media_assets')::text").Scan(&table); err != nil || table.Valid {
 		t.Fatalf("Down did not remove test table: %v", err)
 	}
-	if reapplied, err := provider.Up(ctx); err != nil || len(reapplied) != 1 {
+	if reapplied, err := provider.UpTo(ctx, 1); err != nil || len(reapplied) != 1 {
 		t.Fatalf("Up after Down: %v", err)
 	}
 	var count int
 	if err := pool.QueryRowContext(ctx, "SELECT count(*) FROM media_assets").Scan(&count); err != nil || count != 0 {
 		t.Fatalf("reapplied migration did not create an empty table: %v", err)
 	}
+	t.Run("users and asset ownership", func(t *testing.T) { testIdentityAndOwnership(t, ctx, pool, provider) })
 }
 
 // Read-only verification after explicitly migrating the application database.
@@ -191,7 +192,7 @@ func TestMediaAssetsApplied(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	var version int64
-	if err := pool.QueryRowContext(ctx, "SELECT max(version_id) FROM goose_db_version WHERE is_applied").Scan(&version); err != nil || version != 1 {
+	if err := pool.QueryRowContext(ctx, "SELECT max(version_id) FROM goose_db_version WHERE is_applied").Scan(&version); err != nil || version < 1 {
 		t.Fatalf("expected applied migration version 1: %v", err)
 	}
 	// Resolving the columns verifies the actual table, not just Goose bookkeeping.

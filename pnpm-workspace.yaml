@@ -2,6 +2,7 @@ packages:
   - "apps/*"
   - "packages/*"
 allowBuilds:
+  '@tailwindcss/oxide': false
   browser-tabs-lock: false
   core-js: false
 minimumReleaseAgeExclude:

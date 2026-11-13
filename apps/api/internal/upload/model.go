@@ -1,5 +1,5 @@
-// Package upload implements the stateless, development-only multipart flow.
-// Upload tokens are bearer capabilities, not authenticated user sessions.
+// Package upload implements authenticated, development-only multipart uploads.
+// Owner-bound upload capabilities supplement, never replace, Clerk sessions.
 package upload
 
 import (
@@ -15,12 +15,12 @@ const (
 )
 
 var (
-	ErrNotFound    = errors.New("upload not found")
-	ErrConflict    = errors.New("upload state conflict")
-	ErrUnavailable = errors.New("upload service unavailable")
-	ErrTooLarge    = errors.New("upload exceeds size limit")
-	ErrInvalid     = errors.New("invalid upload")
-	ErrToken       = errors.New("invalid or expired upload token")
+	ErrNotFound        = errors.New("upload not found")
+	ErrConflict        = errors.New("upload state conflict")
+	ErrUnavailable     = errors.New("upload service unavailable")
+	ErrTooLarge        = errors.New("upload exceeds size limit")
+	ErrInvalid         = errors.New("invalid upload")
+	ErrToken           = errors.New("invalid or expired upload token")
 	ErrUnauthenticated = errors.New("authentication required")
 )
 

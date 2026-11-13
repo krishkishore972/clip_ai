@@ -15,18 +15,18 @@ import (
 // Signed, not encrypted. Tokens contain no AWS credentials and must never be
 // logged. Scope binds them to the configured bucket/region. V permits migration.
 type claims struct {
-	V         int    `json:"v"`
-	UserID string `json:"userId"`
+	V           int    `json:"v"`
+	UserID      string `json:"userId"`
 	WorkspaceID string `json:"workspaceId"`
-	Filename string `json:"filename"`
-	ID        string `json:"id"`
-	Key       string `json:"key"`
-	AWSID     string `json:"awsId"`
-	Scope     string `json:"scope"`
-	Size      int64  `json:"size"`
-	PartSize  int64  `json:"partSize"`
-	Type      string `json:"type"`
-	ExpiresAt int64  `json:"exp"`
+	Filename    string `json:"filename"`
+	ID          string `json:"id"`
+	Key         string `json:"key"`
+	AWSID       string `json:"awsId"`
+	Scope       string `json:"scope"`
+	Size        int64  `json:"size"`
+	PartSize    int64  `json:"partSize"`
+	Type        string `json:"type"`
+	ExpiresAt   int64  `json:"exp"`
 }
 
 func (s *Service) sign(c claims) (string, error) {
@@ -69,7 +69,11 @@ func (s *Service) verify(ctx context.Context, a Access) (claims, error) {
 		return claims{}, ErrToken
 	}
 	p, ok := auth.FromContext(ctx)
-	if !ok { return claims{}, ErrUnauthenticated }
-	if p.UserID != c.UserID || p.WorkspaceID != c.WorkspaceID { return claims{}, ErrNotFound }
+	if !ok {
+		return claims{}, ErrUnauthenticated
+	}
+	if p.UserID != c.UserID || p.WorkspaceID != c.WorkspaceID {
+		return claims{}, ErrNotFound
+	}
 	return c, nil
 }

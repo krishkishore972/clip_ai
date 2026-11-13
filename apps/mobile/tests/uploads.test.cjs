@@ -36,6 +36,7 @@ function fixture(options = {}) {
   const controller = new AbortController();
   let closed = false;
   let putActive = false;
+  let tokenCalls = 0;
   const source = {
     sizeBytes: 10,
     async read(offset, length) {
@@ -49,77 +50,94 @@ function fixture(options = {}) {
       events.push("close");
     },
   };
-  const api = createUploadApi(API, async (url, request) => {
-    if (!url.startsWith(API)) {
-      assert.equal(request.method, "PUT");
-      assert.equal(request.headers["Upload-Token"], undefined);
-      assert.equal(request.headers.Authorization, undefined);
-      assert.ok(request.body instanceof Uint8Array);
-      events.push("put");
-      puts.push([...request.body]);
-      if (options.cancelPut) {
-        putActive = true;
-        const pending = new Promise((_, reject) =>
-          request.signal.addEventListener(
-            "abort",
-            () => {
-              putActive = false;
-              events.push("put-settled");
-              reject(new Error("secret signed URL"));
-            },
-            { once: true },
-          ),
+  const api = createUploadApi(
+    API,
+    async (url, request) => {
+      if (!url.startsWith(API)) {
+        assert.equal(request.method, "PUT");
+        assert.equal(request.headers["Upload-Token"], undefined);
+        assert.equal(request.headers.Authorization, undefined);
+        assert.ok(request.body instanceof Uint8Array);
+        events.push("put");
+        puts.push([...request.body]);
+        if (options.cancelPut) {
+          putActive = true;
+          const pending = new Promise((_, reject) =>
+            request.signal.addEventListener(
+              "abort",
+              () => {
+                putActive = false;
+                events.push("put-settled");
+                reject(new Error("secret signed URL"));
+              },
+              { once: true },
+            ),
+          );
+          controller.abort();
+          return pending;
+        }
+        if (options.failPut) return response(403, {});
+        return response(
+          200,
+          {},
+          options.noETag ? {} : { ETag: '"quoted-tag"' },
         );
-        controller.abort();
-        return pending;
       }
-      if (options.failPut) return response(403, {});
-      return response(200, {}, options.noETag ? {} : { ETag: '"quoted-tag"' });
-    }
-    const path = url.slice(API.length);
-    assert.equal(request.headers.Authorization, "Bearer clerk-test-token");
-    events.push(`${request.method} ${path}`);
-    if (path === "/uploads") {
-      assert.equal(request.headers["Upload-Token"], undefined);
-      assert.deepEqual(JSON.parse(request.body), file);
-      if (options.lostCreate) throw new Error("secret signed URL");
-      return response(201, { ...session, ...options.plan });
-    }
-    assert.equal(request.headers["Upload-Token"], TOKEN);
-    if (request.method === "DELETE") {
-      assert.equal(closed, true, "reader must close before remote abort");
-      assert.equal(
-        putActive,
-        false,
-        "active PUT must settle before remote abort",
-      );
-      assert.equal(request.signal.aborted, false, "cleanup uses fresh signal");
-      return response(options.abortFails ? 409 : 204, {});
-    }
-    if (path.endsWith("/parts/sign")) {
-      const partNumber = JSON.parse(request.body).partNumbers[0];
-      return response(200, {
-        parts: [
-          {
-            partNumber: options.wrongPart ? 99 : partNumber,
-            url: "https://bucket.example.invalid/part?secret=signature",
-            headers: options.leakHeader ? { "Upload-Token": TOKEN } : {},
-            expiresAt: session.expiresAt,
-          },
-        ],
-      });
-    }
-    if (path.endsWith("/complete")) {
-      assert.deepEqual(
-        JSON.parse(request.body).parts,
-        [1, 2, 3].map((partNumber) => ({ partNumber, eTag: '"quoted-tag"' })),
-      );
-      if (options.lostComplete) throw new Error("secret signed URL");
-      if (options.cancelComplete) controller.abort();
-      return response(200, { ...session, status: "uploaded_unvalidated" });
-    }
-    assert.fail("unexpected request");
-  }, async () => "clerk-test-token");
+      const path = url.slice(API.length);
+      assert.equal(request.headers.Authorization, "Bearer clerk-test-token");
+      events.push(`${request.method} ${path}`);
+      if (path === "/uploads") {
+        assert.equal(request.headers["Upload-Token"], undefined);
+        assert.deepEqual(JSON.parse(request.body), file);
+        if (options.lostCreate) throw new Error("secret signed URL");
+        return response(201, { ...session, ...options.plan });
+      }
+      assert.equal(request.headers["Upload-Token"], TOKEN);
+      if (request.method === "DELETE") {
+        assert.equal(closed, true, "reader must close before remote abort");
+        assert.equal(
+          putActive,
+          false,
+          "active PUT must settle before remote abort",
+        );
+        assert.equal(
+          request.signal.aborted,
+          false,
+          "cleanup uses fresh signal",
+        );
+        return response(options.abortFails ? 409 : 204, {});
+      }
+      if (path.endsWith("/parts/sign")) {
+        const partNumber = JSON.parse(request.body).partNumbers[0];
+        return response(200, {
+          parts: [
+            {
+              partNumber: options.wrongPart ? 99 : partNumber,
+              url: "https://bucket.example.invalid/part?secret=signature",
+              headers: options.leakHeader ? { "Upload-Token": TOKEN } : {},
+              expiresAt: session.expiresAt,
+            },
+          ],
+        });
+      }
+      if (path.endsWith("/complete")) {
+        assert.deepEqual(
+          JSON.parse(request.body).parts,
+          [1, 2, 3].map((partNumber) => ({ partNumber, eTag: '"quoted-tag"' })),
+        );
+        if (options.lostComplete) throw new Error("secret signed URL");
+        if (options.cancelComplete) controller.abort();
+        return response(200, { ...session, status: "uploaded_unvalidated" });
+      }
+      assert.fail("unexpected request");
+    },
+    async () => {
+      tokenCalls++;
+      return options.expireAfterCreate && tokenCalls > 1
+        ? null
+        : "clerk-test-token";
+    },
+  );
   return {
     events,
     reads,
@@ -171,6 +189,73 @@ test("failed part aborts without automatic retry or duplicate create", async () 
   assert.equal(f.events.filter((e) => e === "POST /uploads").length, 1);
   assert.equal(f.events.at(-1), "DELETE /uploads/upload-1");
   f.assertClosed();
+});
+
+test("session expiry stops the upload without creating a replacement", async () => {
+  const f = fixture({ expireAfterCreate: true });
+  await assert.rejects(f.run(), /session expired/);
+  assert.equal(f.events.filter((event) => event === "POST /uploads").length, 1);
+  assert.equal(f.puts.length, 0);
+  f.assertClosed();
+});
+
+test("signed-out control requests never reach the network", async () => {
+  let calls = 0;
+  const api = createUploadApi(
+    API,
+    async () => {
+      calls++;
+      throw new Error("unexpected network");
+    },
+    async () => null,
+  );
+  await assert.rejects(
+    api.create(file, new AbortController().signal),
+    /session expired/,
+  );
+  assert.equal(calls, 0);
+});
+
+test("401 is safe and is not automatically retried", async () => {
+  let calls = 0;
+  const api = createUploadApi(
+    API,
+    async () => {
+      calls++;
+      return response(401, { message: "sensitive provider data" });
+    },
+    async () => "test-session",
+  );
+  await assert.rejects(api.me(new AbortController().signal), (error) => {
+    assert.match(error.message, /session expired/);
+    assert.doesNotMatch(error.message, /sensitive provider data/);
+    return true;
+  });
+  assert.equal(calls, 1);
+});
+
+test("/me uses the current session token and returns internal identity", async () => {
+  let reads = 0;
+  const api = createUploadApi(
+    API,
+    async (url, request) => {
+      assert.equal(url, `${API}/me`);
+      assert.equal(request.headers.Authorization, `Bearer session-${reads}`);
+      assert.equal(request.headers["Upload-Token"], undefined);
+      return response(200, {
+        userId: "internal-user",
+        workspaceId: "personal-workspace",
+      });
+    },
+    async () => `session-${++reads}`,
+  );
+  for (let i = 0; i < 2; i++) {
+    assert.deepEqual(await api.me(new AbortController().signal), {
+      userId: "internal-user",
+      workspaceId: "personal-workspace",
+    });
+  }
+  assert.equal(reads, 2);
 });
 
 test("cancellation settles active PUT and closes reader before remote abort", async () => {
