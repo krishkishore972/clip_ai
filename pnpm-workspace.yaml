@@ -34,3 +34,4 @@ minimumReleaseAgeExclude:
   - expo-symbols@58.0.5
   - expo-web-browser@58.0.8
   - expo@58.0.24
+  - expo-document-picker@58.0.5

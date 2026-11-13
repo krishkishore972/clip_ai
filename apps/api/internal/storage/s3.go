@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,8 +18,22 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/aws/smithy-go"
 	"github.com/krishkishore972/clip_ai/internal/config"
 )
+
+var (
+	ErrUploadNotFound = errors.New("storage: multipart upload not found")
+	ErrObjectNotFound = errors.New("storage: object not found")
+)
+
+func classify(err, missing error, codes ...string) error {
+	var apiErr smithy.APIError
+	if errors.As(err, &apiErr) && slices.Contains(codes, apiErr.ErrorCode()) {
+		return errors.Join(missing, err)
+	}
+	return err
+}
 
 // Small SDK interfaces keep tests offline and avoid exposing AWS types to callers.
 type multipartCreator interface {
@@ -89,8 +105,9 @@ func NewS3(ctx context.Context, cfg config.S3) (*S3, error) {
 	return &S3{client: client, presigner: s3.NewPresignClient(client), bucket: cfg.Bucket, presignTTL: cfg.PresignTTL}, nil
 }
 
-// Begin initiates a real multipart upload. Call only after authorizing and
-// persisting the application session intent; persist the returned AWS upload ID.
+// Begin initiates a real multipart upload. The application must retain the AWS
+// upload ID in a signed upload token or durable session record, not accept an
+// unchecked client-selected key/ID in subsequent control calls.
 func (s *S3) Begin(ctx context.Context, key, contentType string) (string, error) {
 	if key == "" || contentType == "" {
 		return "", errors.New("storage: key and content type are required")
@@ -108,28 +125,53 @@ func (s *S3) Begin(ctx context.Context, key, contentType string) (string, error)
 }
 
 // PresignPart signs a raw PUT, not a multipart/form-data request. Expected length
-// comes from the stored session, never unchecked client input. The service must
-// still verify actual part sizes before completion and enforce session expiry.
-func (s *S3) PresignPart(ctx context.Context, key, uploadID string, number int32, sizeBytes int64) (PresignedPart, error) {
+// comes from the signed upload plan or stored session, never unchecked client
+// input. One optional TTL can shorten signing to the remaining token lifetime.
+// The service must still verify actual part sizes before completion.
+func (s *S3) PresignPart(ctx context.Context, key, uploadID string, number int32, sizeBytes int64, ttl ...time.Duration) (PresignedPart, error) {
 	if key == "" || uploadID == "" || number < 1 || number > 10_000 || sizeBytes <= 0 {
 		return PresignedPart{}, errors.New("storage: invalid part signing input")
 	}
-	expiresAt := time.Now().UTC().Add(s.presignTTL)
+	expires := s.presignTTL
+	if len(ttl) > 1 {
+		return PresignedPart{}, errors.New("storage: at most one signing TTL is allowed")
+	}
+	if len(ttl) == 1 {
+		expires = ttl[0]
+	}
+	if expires < time.Second || expires > s.presignTTL {
+		return PresignedPart{}, errors.New("storage: signing TTL must be between 1s and the configured TTL")
+	}
+	expiresAt := time.Now().UTC().Add(expires)
 	out, err := s.presigner.PresignUploadPart(ctx, &s3.UploadPartInput{
 		Bucket: aws.String(s.bucket), Key: aws.String(key), UploadId: aws.String(uploadID),
 		PartNumber: aws.Int32(number), ContentLength: aws.Int64(sizeBytes),
-	}, func(opts *s3.PresignOptions) { opts.Expires = s.presignTTL })
+	}, func(opts *s3.PresignOptions) { opts.Expires = expires })
 	if err != nil {
 		return PresignedPart{}, fmt.Errorf("storage: sign upload part: %w", err)
 	}
 	if out == nil || out.URL == "" || out.Method != http.MethodPut {
 		return PresignedPart{}, errors.New("storage: invalid presigned upload response")
 	}
+	// Credential resolution can delay SDK signing. Report the actual signed
+	// deadline so the application can reject URLs that outlive its upload token.
+	u, err := url.Parse(out.URL)
+	if err != nil {
+		return PresignedPart{}, errors.New("storage: invalid signed URL")
+	}
+	if date := u.Query().Get("X-Amz-Date"); date != "" {
+		signedAt, err := time.Parse("20060102T150405Z", date)
+		seconds, durationErr := strconv.ParseInt(u.Query().Get("X-Amz-Expires"), 10, 64)
+		if err != nil || durationErr != nil || seconds < 1 || seconds > 900 {
+			return PresignedPart{}, errors.New("storage: invalid signed URL expiration")
+		}
+		expiresAt = signedAt.Add(time.Duration(seconds) * time.Second)
+	}
 	return PresignedPart{URL: out.URL, Method: out.Method, Headers: out.SignedHeader.Clone(), ExpiresAt: expiresAt}, nil
 }
 
 // ListParts follows every page. It does not accept a client's claim that a part
-// exists. The future session service must compare these sizes/ETags to its plan.
+// exists. The upload service must compare these sizes/ETags to its signed plan.
 func (s *S3) ListParts(ctx context.Context, key, uploadID string) ([]Part, error) {
 	if key == "" || uploadID == "" {
 		return nil, errors.New("storage: key and upload ID are required")
@@ -143,7 +185,7 @@ func (s *S3) ListParts(ctx context.Context, key, uploadID string) ([]Part, error
 			Bucket: aws.String(s.bucket), Key: aws.String(key), UploadId: aws.String(uploadID), PartNumberMarker: marker,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("storage: list upload parts: %w", err)
+			return nil, fmt.Errorf("storage: list upload parts: %w", classify(err, ErrUploadNotFound, "NoSuchUpload"))
 		}
 		if out == nil {
 			return nil, errors.New("storage: empty list-parts response")
@@ -171,7 +213,8 @@ func (s *S3) ListParts(ctx context.Context, key, uploadID string) ([]Part, error
 
 // Complete sorts a copy of the verified part list. It is a low-level operation,
 // not media approval or application-level idempotency. Reconcile uncertain
-// completion via Head and persisted session state; do not blindly re-initiate.
+// completion via Head and the signed object key or persisted session state;
+// do not blindly re-initiate.
 func (s *S3) Complete(ctx context.Context, key, uploadID string, verified []Part) error {
 	if key == "" || uploadID == "" || len(verified) == 0 || len(verified) > 10_000 {
 		return errors.New("storage: invalid multipart completion input")
@@ -190,7 +233,7 @@ func (s *S3) Complete(ctx context.Context, key, uploadID string, verified []Part
 		MultipartUpload: &types.CompletedMultipartUpload{Parts: completed},
 	})
 	if err != nil {
-		return fmt.Errorf("storage: complete multipart upload: %w", err)
+		return fmt.Errorf("storage: complete multipart upload: %w", classify(err, ErrUploadNotFound, "NoSuchUpload"))
 	}
 	return nil
 }
@@ -205,7 +248,7 @@ func (s *S3) Abort(ctx context.Context, key, uploadID string) error {
 		Bucket: aws.String(s.bucket), Key: aws.String(key), UploadId: aws.String(uploadID),
 	})
 	if err != nil {
-		return fmt.Errorf("storage: abort multipart upload: %w", err)
+		return fmt.Errorf("storage: abort multipart upload: %w", classify(err, ErrUploadNotFound, "NoSuchUpload"))
 	}
 	return nil
 }
@@ -216,7 +259,7 @@ func (s *S3) Head(ctx context.Context, key string) (ObjectInfo, error) {
 	}
 	out, err := s.client.HeadObject(ctx, &s3.HeadObjectInput{Bucket: aws.String(s.bucket), Key: aws.String(key)})
 	if err != nil {
-		return ObjectInfo{}, fmt.Errorf("storage: inspect object: %w", err)
+		return ObjectInfo{}, fmt.Errorf("storage: inspect object: %w", classify(err, ErrObjectNotFound, "NotFound", "NoSuchKey", "404"))
 	}
 	if out == nil || out.ContentLength == nil || aws.ToInt64(out.ContentLength) < 0 {
 		return ObjectInfo{}, errors.New("storage: invalid object metadata")

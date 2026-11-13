@@ -15,6 +15,7 @@ import (
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/aws/smithy-go"
 	"github.com/krishkishore972/clip_ai/internal/config"
 )
 
@@ -351,6 +352,50 @@ func TestNewS3RejectsInvalidConfig(t *testing.T) {
 	} {
 		if _, err := NewS3(context.Background(), cfg); err == nil {
 			t.Fatal("invalid S3 configuration accepted")
+		}
+	}
+}
+
+func TestS3MissingResourceClassification(t *testing.T) {
+	t.Parallel()
+	for _, op := range []string{"list", "complete", "abort", "head"} {
+		t.Run(op, func(t *testing.T) {
+			t.Parallel()
+			code, want := "NoSuchUpload", ErrUploadNotFound
+			if op == "head" {
+				code, want = "NotFound", ErrObjectNotFound
+			}
+			cause := &smithy.GenericAPIError{Code: code, Message: "test failure"}
+			store := testStore(&sdkStub{err: cause})
+			var err error
+			switch op {
+			case "list":
+				_, err = store.ListParts(context.Background(), "key", "aws-id")
+			case "complete":
+				err = store.Complete(context.Background(), "key", "aws-id", []Part{{Number: 1, ETag: "tag"}})
+			case "abort":
+				err = store.Abort(context.Background(), "key", "aws-id")
+			case "head":
+				_, err = store.Head(context.Background(), "key")
+			}
+			if !errors.Is(err, want) || !errors.Is(err, cause) {
+				t.Fatalf("classification/cause lost: %v", err)
+			}
+		})
+	}
+}
+
+func TestS3PartTTLOverride(t *testing.T) {
+	t.Parallel()
+	signer := &presignerStub{out: &v4.PresignedHTTPRequest{URL: "https://example.invalid/part", Method: http.MethodPut}}
+	store := testStore(&sdkStub{})
+	store.presigner = signer
+	if _, err := store.PresignPart(context.Background(), "key", "aws-id", 1, 1024, 5*time.Second); err != nil || signer.ttl != 5*time.Second {
+		t.Fatalf("TTL override not applied: %v", err)
+	}
+	for _, ttl := range [][]time.Duration{{0}, {time.Millisecond}, {16 * time.Minute}, {time.Second, time.Second}} {
+		if _, err := store.PresignPart(context.Background(), "key", "aws-id", 1, 1024, ttl...); err == nil {
+			t.Fatal("invalid TTL override accepted")
 		}
 	}
 }

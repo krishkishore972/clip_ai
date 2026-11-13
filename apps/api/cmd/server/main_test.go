@@ -1,13 +1,29 @@
 package main
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/krishkishore972/clip_ai/internal/config"
 )
+
+func TestServeRejectsDatabaseFailureWithoutLeakingDSN(t *testing.T) {
+	t.Parallel()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	err := serve(config.Config{DatabaseURL: "postgres://secret-user:secret-password@localhost:invalid-port/database"}, logger)
+	if err == nil {
+		t.Fatal("startup accepted an invalid database connection")
+	}
+	if !strings.Contains(err.Error(), "database connection failed") || strings.Contains(err.Error(), "secret-") {
+		t.Fatal("startup error must explain connection failure without exposing the DSN")
+	}
+}
 
 func TestUploadRoutesDevelopmentOnly(t *testing.T) {
 	t.Parallel()
@@ -19,7 +35,6 @@ func TestUploadRoutesDevelopmentOnly(t *testing.T) {
 			r := httptest.NewRequest(http.MethodPost, "/uploads", strings.NewReader(
 				`{"filename":"sample.mp4","sizeBytes":1024,"contentType":"video/mp4"}`))
 			r.Header.Set("Content-Type", "application/json")
-			r.Header.Set("Idempotency-Key", "dev-1")
 			w := httptest.NewRecorder()
 			h.ServeHTTP(w, r)
 			want := http.StatusNotFound
@@ -36,6 +51,36 @@ func TestUploadRoutesDevelopmentOnly(t *testing.T) {
 				t.Fatal("missing middleware request ID")
 			}
 		})
+	}
+}
+
+func TestDevelopmentUploadsStartup(t *testing.T) {
+	t.Setenv("DEV_S3_UPLOAD_ENABLED", "false")
+	if service, err := developmentUploads(context.Background(), "development"); err != nil || service != nil {
+		t.Fatal("disabled startup attempted upload initialization")
+	}
+	t.Setenv("DEV_S3_UPLOAD_ENABLED", "true")
+	if _, err := developmentUploads(context.Background(), "production"); err == nil {
+		t.Fatal("production enabled unguarded uploads")
+	}
+	t.Setenv("AWS_REGION", "")
+	if _, err := developmentUploads(context.Background(), "development"); err == nil {
+		t.Fatal("enabled startup accepted missing configuration")
+	}
+	// Construct the real adapter with isolated fake credentials. No upload request
+	// is sent: this verifies composition, not connectivity to AWS.
+	for key, value := range map[string]string{
+		"AWS_REGION": "ap-south-1", "S3_BUCKET": "private-example-bucket", "S3_PRESIGN_TTL": "15m",
+		"UPLOAD_TOKEN_SECRET": strings.Repeat("test-only-", 8), "UPLOAD_TOKEN_TTL": "24h",
+		"AWS_ACCESS_KEY_ID": "TESTKEY", "AWS_SECRET_ACCESS_KEY": "not-real", "AWS_SESSION_TOKEN": "",
+		"AWS_PROFILE": "", "AWS_DEFAULT_PROFILE": "", "AWS_EC2_METADATA_DISABLED": "true",
+		"AWS_CONFIG_FILE":             filepath.Join(t.TempDir(), "missing-config"),
+		"AWS_SHARED_CREDENTIALS_FILE": filepath.Join(t.TempDir(), "missing-credentials"),
+	} {
+		t.Setenv(key, value)
+	}
+	if service, err := developmentUploads(context.Background(), "development"); err != nil || service == nil {
+		t.Fatalf("SDK/service composition failed: %v", err)
 	}
 }
 

@@ -17,8 +17,11 @@ import (
 	"time"
 
 	"github.com/krishkishore972/clip_ai/internal/config"
+	"github.com/krishkishore972/clip_ai/internal/db"
 	"github.com/krishkishore972/clip_ai/internal/handler"
 	"github.com/krishkishore972/clip_ai/internal/httpserver"
+	"github.com/krishkishore972/clip_ai/internal/storage"
+	"github.com/krishkishore972/clip_ai/internal/upload"
 )
 
 // version is stamped at build time via -ldflags "-X main.version=<git describe>".
@@ -36,12 +39,50 @@ func main() {
 		Level: cfg.LogLevel,
 	}))
 
-	srv := httpserver.NewServer(cfg, newHandler(logger, cfg.Env, nil))
-
-	if err := run(srv, cfg.ShutdownTimeout, logger); err != nil {
+	if err := serve(cfg, logger); err != nil {
 		logger.Error("server exited", "err", err)
 		os.Exit(1)
 	}
+}
+
+func serve(cfg config.Config, logger *slog.Logger) error {
+	database, err := db.Connect(cfg.DatabaseURL)
+	if err != nil {
+		// Driver errors may include the DSN or database credentials.
+		return errors.New("database connection failed; check DATABASE_URL and PostgreSQL availability")
+	}
+	defer func() {
+		if err := database.Close(); err != nil {
+			logger.Error("database pool close failed")
+		}
+	}()
+	logger.Info("database connected")
+
+	uploads, err := developmentUploads(context.Background(), cfg.Env)
+	if err != nil {
+		return fmt.Errorf("initialize development uploads: %w", err)
+	}
+	if uploads != nil {
+		logger.Warn("development S3 uploads enabled without user authentication; do not expose publicly")
+	}
+	srv := httpserver.NewServer(cfg, newHandler(logger, cfg.Env, uploads))
+
+	return run(srv, cfg.ShutdownTimeout, logger)
+}
+
+func developmentUploads(ctx context.Context, env string) (handler.MultipartUploadService, error) {
+	cfg, err := config.LoadDevelopmentUpload(env)
+	if err != nil || !cfg.Enabled {
+		return nil, err
+	}
+	store, err := storage.NewS3(ctx, cfg.S3)
+	if err != nil {
+		return nil, err
+	}
+	return upload.New(store, upload.Config{
+		SigningSecret: []byte(cfg.SigningSecret), Scope: cfg.S3.Region + "/" + cfg.S3.Bucket,
+		TokenTTL: cfg.TokenTTL, PresignTTL: cfg.S3.PresignTTL,
+	})
 }
 
 // newHandler builds the route table and installs middleware. Add routes here

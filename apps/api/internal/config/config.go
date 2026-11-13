@@ -18,6 +18,7 @@ import (
 
 // Config is the resolved, validated configuration for the API process.
 type Config struct {
+	DatabaseURL       string        // DATABASE_URL: PostgreSQL DSN; never log this value
 	Addr              string        // API_ADDR: host:port to listen on
 	Env               string        // API_ENV: "development", "test", "production"
 	LogLevel          slog.Level    // API_LOG_LEVEL: minimum level emitted to stdout
@@ -46,6 +47,11 @@ func Load() (Config, error) {
 		errs = append(errs, err)
 	}
 	cfg.Env = env
+
+	cfg.DatabaseURL, err = required("DATABASE_URL")
+	if err != nil {
+		errs = append(errs, err)
+	}
 
 	if cfg.LogLevel, err = requiredLevel("API_LOG_LEVEL"); err != nil {
 		errs = append(errs, err)

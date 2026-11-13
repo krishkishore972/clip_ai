@@ -8,6 +8,7 @@ import (
 )
 
 var envKeys = []string{
+	"DATABASE_URL",
 	"API_ADDR",
 	"API_ENV",
 	"API_LOG_LEVEL",
@@ -34,6 +35,7 @@ func setValidEnv(t *testing.T) {
 	clearEnv(t)
 	t.Setenv("API_ADDR", ":8080")
 	t.Setenv("API_ENV", "development")
+	t.Setenv("DATABASE_URL", "postgres://example:fake@localhost:5432/clip_ai")
 	t.Setenv("API_LOG_LEVEL", "info")
 	t.Setenv("API_READ_HEADER_TIMEOUT", "5s")
 	t.Setenv("API_READ_TIMEOUT", "30s")
@@ -52,6 +54,9 @@ func TestLoad(t *testing.T) {
 
 	if cfg.Addr != ":8080" {
 		t.Errorf("Addr = %q, want :8080", cfg.Addr)
+	}
+	if cfg.DatabaseURL != "postgres://example:fake@localhost:5432/clip_ai" {
+		t.Error("DatabaseURL does not match the configured value")
 	}
 	if cfg.Env != "development" {
 		t.Errorf("Env = %q, want development", cfg.Env)

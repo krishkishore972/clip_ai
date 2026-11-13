@@ -8,90 +8,52 @@ import (
 	"net/http"
 	"path"
 	"strings"
-	"time"
 	"unicode"
 
 	"github.com/krishkishore972/clip_ai/internal/httpserver"
+	"github.com/krishkishore972/clip_ai/internal/upload"
 )
 
 const (
-	maxUploadBytes = 2_000_000_000
+	maxUploadBytes = upload.MaxUploadBytes
 	maxPartNumber  = 10_000
-	maxSignBatch   = 100
+	maxSignBatch   = upload.MaxSignBatch
 )
 
 // Service errors are safe classifications, not provider error messages.
 var (
-	ErrUploadNotFound    = errors.New("upload not found")
-	ErrUploadConflict    = errors.New("upload state conflict")
-	ErrUploadUnavailable = errors.New("upload service unavailable")
-	ErrUploadTooLarge    = errors.New("upload exceeds size limit")
-	ErrInvalidUpload     = errors.New("invalid upload")
+	ErrUploadNotFound    = upload.ErrNotFound
+	ErrUploadConflict    = upload.ErrConflict
+	ErrUploadUnavailable = upload.ErrUnavailable
+	ErrUploadTooLarge    = upload.ErrTooLarge
+	ErrInvalidUpload     = upload.ErrInvalid
 )
 
-// CreateUploadRequest contains advisory metadata, not verified media facts.
-type CreateUploadRequest struct {
-	Filename    string `json:"filename"`
-	SizeBytes   int64  `json:"sizeBytes"`
-	ContentType string `json:"contentType"`
-}
+// Aliases keep the HTTP boundary and application service on one model.
+type CreateUploadRequest = upload.CreateUploadRequest
+type SignUploadPartsRequest = upload.SignUploadPartsRequest
+type CompleteUploadPart = upload.CompleteUploadPart
+type CompleteUploadRequest = upload.CompleteUploadRequest
+type UploadedPart = upload.UploadedPart
+type UploadSession = upload.UploadSession
+type SignedUploadPart = upload.SignedUploadPart
+type SignedUploadParts = upload.SignedUploadParts
 
-type SignUploadPartsRequest struct {
-	PartNumbers []int `json:"partNumbers"`
-}
-
-type CompleteUploadPart struct {
-	PartNumber int    `json:"partNumber"`
-	ETag       string `json:"eTag"`
-}
-
-type CompleteUploadRequest struct {
-	Parts []CompleteUploadPart `json:"parts"`
-}
-
-type UploadedPart struct {
-	PartNumber int    `json:"partNumber"`
-	ETag       string `json:"eTag"`
-	SizeBytes  int64  `json:"sizeBytes"`
-}
-
-// UploadID is our opaque session ID, not a client-selected S3 key or AWS upload ID.
-// Completed sessions remain uploaded_unvalidated; completion cannot approve media.
-type UploadSession struct {
-	UploadID      string         `json:"uploadId"`
-	Status        string         `json:"status"`
-	PartSizeBytes int64          `json:"partSizeBytes"`
-	PartCount     int            `json:"partCount"`
-	ExpiresAt     time.Time      `json:"expiresAt"`
-	UploadedParts []UploadedPart `json:"uploadedParts"`
-}
-
-type SignedUploadPart struct {
-	PartNumber int               `json:"partNumber"`
-	URL        string            `json:"url"`
-	Headers    map[string]string `json:"headers"`
-	ExpiresAt  time.Time         `json:"expiresAt"`
-}
-
-type SignedUploadParts struct {
-	Parts []SignedUploadPart `json:"parts"`
-}
-
-// UploadCreator must implement replay safety for the supplied idempotency key.
+// Create starts a fresh upload on every call; persistent deduplication is absent.
 type UploadCreator interface {
-	Create(context.Context, string, CreateUploadRequest) (UploadSession, error)
+	Create(context.Context, CreateUploadRequest) (UploadSession, error)
 }
 
 type UploadPartSigner interface {
-	SignParts(context.Context, string, []int) (SignedUploadParts, error)
+	SignParts(context.Context, upload.Access, []int) (SignedUploadParts, error)
 }
 
 // UploadSessions owns state, expiration, and authoritative S3 part verification.
 // Complete must validate expected sizes/parts and never launch AI processing.
 type UploadSessions interface {
-	Get(context.Context, string) (UploadSession, error)
-	Complete(context.Context, string, string, CompleteUploadRequest) (UploadSession, error)
-	Abort(context.Context, string, string) error
+	Get(context.Context, upload.Access) (UploadSession, error)
+	Complete(context.Context, upload.Access, CompleteUploadRequest) (UploadSession, error)
+	Abort(context.Context, upload.Access) error
 }
 
 // MultipartUploadService is injected; handlers do not store sessions or call AWS.
@@ -123,10 +85,6 @@ func (h *MultipartUploadHandler) Register(mux *http.ServeMux) {
 
 func (h *MultipartUploadHandler) Create(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	key, ok := h.idempotencyKey(w, r)
-	if !ok {
-		return
-	}
 	in, ok := decodeUploadRequest[CreateUploadRequest](h, w, r)
 	if !ok {
 		return
@@ -148,7 +106,7 @@ func (h *MultipartUploadHandler) Create(w http.ResponseWriter, r *http.Request) 
 	if !h.available(w, r) {
 		return
 	}
-	out, err := h.service.Create(r.Context(), key, *in)
+	out, err := h.service.Create(r.Context(), *in)
 	if err != nil {
 		h.serviceError(w, r, err)
 		return
@@ -171,7 +129,7 @@ func (h *MultipartUploadHandler) SignParts(w http.ResponseWriter, r *http.Reques
 	if !h.available(w, r) {
 		return
 	}
-	out, err := h.service.SignParts(r.Context(), r.PathValue("uploadId"), in.PartNumbers)
+	out, err := h.service.SignParts(r.Context(), access(r), in.PartNumbers)
 	if err != nil {
 		h.serviceError(w, r, err)
 		return
@@ -183,7 +141,7 @@ func (h *MultipartUploadHandler) Get(w http.ResponseWriter, r *http.Request) {
 	if !h.sessionID(w, r) || !h.available(w, r) {
 		return
 	}
-	out, err := h.service.Get(r.Context(), r.PathValue("uploadId"))
+	out, err := h.service.Get(r.Context(), access(r))
 	if err != nil {
 		h.serviceError(w, r, err)
 		return
@@ -193,10 +151,6 @@ func (h *MultipartUploadHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 func (h *MultipartUploadHandler) Complete(w http.ResponseWriter, r *http.Request) {
 	if !h.sessionID(w, r) {
-		return
-	}
-	key, ok := h.idempotencyKey(w, r)
-	if !ok {
 		return
 	}
 	in, ok := decodeUploadRequest[CompleteUploadRequest](h, w, r)
@@ -222,7 +176,7 @@ func (h *MultipartUploadHandler) Complete(w http.ResponseWriter, r *http.Request
 	if !h.available(w, r) {
 		return
 	}
-	out, err := h.service.Complete(r.Context(), r.PathValue("uploadId"), key, *in)
+	out, err := h.service.Complete(r.Context(), access(r), *in)
 	if err != nil {
 		h.serviceError(w, r, err)
 		return
@@ -234,11 +188,10 @@ func (h *MultipartUploadHandler) Abort(w http.ResponseWriter, r *http.Request) {
 	if !h.sessionID(w, r) {
 		return
 	}
-	key, ok := h.idempotencyKey(w, r)
-	if !ok || !h.available(w, r) {
+	if !h.available(w, r) {
 		return
 	}
-	if err := h.service.Abort(r.Context(), r.PathValue("uploadId"), key); err != nil {
+	if err := h.service.Abort(r.Context(), access(r)); err != nil {
 		h.serviceError(w, r, err)
 		return
 	}
@@ -251,16 +204,16 @@ func (h *MultipartUploadHandler) sessionID(w http.ResponseWriter, r *http.Reques
 		h.fail(w, r, http.StatusBadRequest, "invalid_upload_id", "a valid upload session ID is required")
 		return false
 	}
+	token := r.Header.Get("Upload-Token")
+	if len(r.Header.Values("Upload-Token")) != 1 || len(token) == 0 || len(token) > upload.MaxTokenBytes {
+		h.fail(w, r, http.StatusForbidden, "invalid_upload_token", "a valid Upload-Token header is required")
+		return false
+	}
 	return true
 }
 
-func (h *MultipartUploadHandler) idempotencyKey(w http.ResponseWriter, r *http.Request) (string, bool) {
-	key := r.Header.Get("Idempotency-Key")
-	if !validToken(key) {
-		h.fail(w, r, http.StatusBadRequest, "invalid_idempotency_key", "Idempotency-Key must contain 1 to 128 letters, digits, or _-.: characters")
-		return "", false
-	}
-	return key, true
+func access(r *http.Request) upload.Access {
+	return upload.Access{UploadID: r.PathValue("uploadId"), Token: r.Header.Get("Upload-Token")}
 }
 
 func validToken(s string) bool {
@@ -316,6 +269,8 @@ func (h *MultipartUploadHandler) available(w http.ResponseWriter, r *http.Reques
 
 func (h *MultipartUploadHandler) serviceError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
+	case errors.Is(err, upload.ErrToken):
+		h.fail(w, r, http.StatusForbidden, "invalid_upload_token", "upload token is invalid or expired")
 	case errors.Is(err, ErrUploadNotFound):
 		h.fail(w, r, http.StatusNotFound, "upload_not_found", "upload session not found")
 	case errors.Is(err, ErrUploadConflict):
