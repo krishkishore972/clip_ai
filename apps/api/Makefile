@@ -50,6 +50,20 @@ run: ## Run the API server (make run PORT=9090 overrides API_ADDR)
 
 ## ---- quality --------------------------------------------------------
 
+# Migrations are explicit, never part of server startup. DATABASE_URL is
+# inherited from .env/environment, not expanded into command-line arguments.
+# Run one migration process at a time. Rollbacks are tested only in a test schema.
+.PHONY: migrate-up migrate-status test-migrations
+migrate-up: ## Apply pending Goose migrations
+	$(GO) run ./cmd/migrate up
+
+migrate-status: ## Show Goose migration versions
+	$(GO) run ./cmd/migrate status
+
+test-migrations: ## Test Up/Down in a disposable schema (TEST_DATABASE_URL: direct test DB connection)
+	@test -n "$$TEST_DATABASE_URL" || { echo "TEST_DATABASE_URL is required (use a test database)" >&2; exit 1; }
+	$(GO) test -v ./migrations -run TestMediaAssetsMigration -count=1
+
 .PHONY: test
 test: ## Run unit tests
 	$(GO) test ./...

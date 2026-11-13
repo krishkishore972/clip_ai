@@ -3,6 +3,7 @@
 # Dependencies
 node_modules
 design
+opus-pro-report
 docs
 .pnp
 .pnp.js
