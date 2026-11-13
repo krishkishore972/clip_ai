@@ -17,10 +17,10 @@ try {
   writeFileSync(config, JSON.stringify({
     compilerOptions: { target: 'ES2022', module: 'Node16', moduleResolution: 'Node16', strict: true,
       skipLibCheck: true, types: [], lib: ['ES2022', 'DOM'], rootDir: root, outDir: out },
-    files: [join(root, 'api/uploads.ts'), join(root, 'uploads/upload-video.ts')],
+    files: [join(root, 'api/uploads.ts'), join(root, 'uploads/upload-video.ts'), join(root, 'auth/expo-go-callback.ts')],
   }));
   execFileSync(process.execPath, [require.resolve('typescript/bin/tsc'), '-p', config], { stdio: 'inherit' });
-  const tests = spawnSync(process.execPath, ['--test', fileURLToPath(new URL('../tests/uploads.test.cjs', import.meta.url))], {
+  const tests = spawnSync(process.execPath, ['--test', fileURLToPath(new URL('../tests/uploads.test.cjs', import.meta.url)), fileURLToPath(new URL('../tests/expo-go-callback.test.cjs', import.meta.url))], {
     stdio: 'inherit', env: { ...process.env, UPLOAD_TEST_BUILD_DIR: out },
   });
   process.exitCode = tests.status ?? 1;

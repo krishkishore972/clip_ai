@@ -32,7 +32,7 @@
     "react-aria": "^3.53.1",
     "react-dom": "19.3.0",
     "react-native": "0.88.1",
-    "react-native-css": "3.0.7",
+    "react-native-css": "3.1.0-rc.0",
     "react-native-gesture-handler": "~3.3.0",
     "react-native-reanimated": "4.7.1",
     "react-native-safe-area-context": "~5.11.1",

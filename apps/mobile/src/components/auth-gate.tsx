@@ -1,11 +1,15 @@
 import { useAuth, useClerk } from "@clerk/expo";
 import { useHostedAuth } from "@clerk/expo/hosted-auth";
+import { isRunningInExpoGo } from "expo";
+import { getBundleOrigin } from "expo/internal/bundle-origin";
+import { getInitialURL, getLinkingURL } from "expo-linking";
 import { useEffect, useState, type ReactNode } from "react";
 import { ActivityIndicator, Button, StyleSheet, View } from "react-native";
 
 import { ThemedText } from "./themed-text";
 import { configuredUploadApi } from "@/lib/api/mobile-client";
 import type { Me } from "@/lib/api/generated";
+import { expoGoCallback, expoGoCallbackFromHost } from "@/lib/auth/expo-go-callback";
 
 export function AuthGate({ children }: { children: ReactNode }) {
   const { isLoaded, isSignedIn, sessionId, getToken } = useAuth();
@@ -43,11 +47,50 @@ export function AuthGate({ children }: { children: ReactNode }) {
   async function authenticate() {
     setBusy(true);
     setMessage("");
+    let stage = "callback_lookup";
+    function reportFailure(code: string) {
+      const text = `Sign-in did not complete (${code}).`;
+      setMessage(text);
+      // Fixed diagnostic codes only: never log callback URLs or SDK errors.
+      console.warn(text);
+    }
     try {
-      await startHostedAuth();
+      let redirectUrl: string | undefined;
+      if (isRunningInExpoGo()) {
+        // Expo Go handles exp:// links, not this project's mobile:// scheme.
+        // Return to the existing root screen; the SDK validates and redeems
+        // the callback before activating the session.
+        const callback =
+          expoGoCallback(getLinkingURL()) ??
+          expoGoCallback(await getInitialURL()) ??
+          // SDK 58's own expo-linking uses this origin rather than manifest
+          // metadata, which may be absent or disagree with a proxy/tunnel.
+          expoGoCallbackFromHost(getBundleOrigin() ?? undefined);
+        if (!callback) {
+          reportFailure("expo_go_callback_unavailable");
+          return;
+        }
+        redirectUrl = callback;
+      }
+      stage = "hosted_auth";
+      const result = await startHostedAuth(
+        redirectUrl ? { redirectUrl } : undefined,
+      );
+      if (result.createdSessionId) return;
+      if (!result.authSessionResult) {
+        reportFailure("clerk_not_ready");
+      } else if (result.authSessionResult.type === "cancel") {
+        reportFailure("browser_cancelled");
+      } else if (result.authSessionResult.type === "dismiss") {
+        reportFailure("browser_dismissed");
+      } else {
+        reportFailure("session_not_created");
+      }
     } catch {
-      setMessage(
-        "Sign-in failed. Check Clerk Native API, Google connection, and callback configuration.",
+      reportFailure(
+        stage === "callback_lookup"
+          ? "callback_lookup_failed"
+          : "hosted_auth_failed",
       );
     } finally {
       setBusy(false);
