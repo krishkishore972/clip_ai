@@ -53,6 +53,7 @@ function fixture(options = {}) {
     if (!url.startsWith(API)) {
       assert.equal(request.method, "PUT");
       assert.equal(request.headers["Upload-Token"], undefined);
+      assert.equal(request.headers.Authorization, undefined);
       assert.ok(request.body instanceof Uint8Array);
       events.push("put");
       puts.push([...request.body]);
@@ -76,6 +77,7 @@ function fixture(options = {}) {
       return response(200, {}, options.noETag ? {} : { ETag: '"quoted-tag"' });
     }
     const path = url.slice(API.length);
+    assert.equal(request.headers.Authorization, "Bearer clerk-test-token");
     events.push(`${request.method} ${path}`);
     if (path === "/uploads") {
       assert.equal(request.headers["Upload-Token"], undefined);
@@ -117,7 +119,7 @@ function fixture(options = {}) {
       return response(200, { ...session, status: "uploaded_unvalidated" });
     }
     assert.fail("unexpected request");
-  });
+  }, async () => "clerk-test-token");
   return {
     events,
     reads,

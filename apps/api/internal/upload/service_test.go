@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/krishkishore972/clip_ai/internal/storage"
+	"github.com/krishkishore972/clip_ai/internal/auth"
 )
 
 // An offline S3 double, not an application session store or runtime fallback.
@@ -114,9 +115,13 @@ func (f *storeStub) Head(ctx context.Context, key string) (storage.ObjectInfo, e
 }
 
 func testConfig() Config {
-	return Config{SigningSecret: []byte(strings.Repeat("test-key-", 8)), Scope: "test-region/test-bucket",
+	return Config{Assets:&assetStub{}, Bucket:"test-bucket", SigningSecret: []byte(strings.Repeat("test-key-", 8)), Scope: "test-region/test-bucket",
 		TokenTTL: time.Hour, PresignTTL: 15 * time.Minute}
 }
+
+type assetStub struct { err error; saved []CompletedAsset }
+func (s *assetStub) SaveCompleted(_ context.Context,a CompletedAsset) error { s.saved=append(s.saved,a);return s.err }
+func ownerContext() context.Context { return auth.WithPrincipal(context.Background(),auth.Principal{UserID:"test-user",WorkspaceID:"test-workspace"}) }
 
 func testService(t *testing.T) (*Service, *storeStub) {
 	t.Helper()
@@ -132,7 +137,7 @@ func testService(t *testing.T) (*Service, *storeStub) {
 
 func start(t *testing.T, s *Service, size int64) UploadSession {
 	t.Helper()
-	out, err := s.Create(context.Background(), CreateUploadRequest{Filename: "sample.mp4", ContentType: "video/mp4", SizeBytes: size})
+	out, err := s.Create(ownerContext(), CreateUploadRequest{Filename: "sample.mp4", ContentType: "video/mp4", SizeBytes: size})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +158,7 @@ func TestCreateAndSign(t *testing.T) {
 	if f.key != "dev-uploads/"+state.UploadID+"/source.mp4" || !slices.Equal(f.calls, []string{"begin"}) {
 		t.Fatal("object key was not server generated")
 	}
-	out, err := s.SignParts(context.Background(), accessFor(state), []int{1, 2})
+	out, err := s.SignParts(ownerContext(), accessFor(state), []int{1, 2})
 	if err != nil || len(out.Parts) != 2 || !slices.Equal(f.signSizes, []int64{PartSizeBytes, 1024}) {
 		t.Fatalf("incorrect signed part sizes: %v", err)
 	}
@@ -200,10 +205,10 @@ func TestTokenRejectionBeforeStorage(t *testing.T) {
 			}
 			before := len(f.calls)
 			checks := []func() error{
-				func() error { _, err := s.Get(context.Background(), a); return err },
-				func() error { _, err := s.SignParts(context.Background(), a, []int{1}); return err },
-				func() error { _, err := s.Complete(context.Background(), a, CompleteUploadRequest{}); return err },
-				func() error { return s.Abort(context.Background(), a) },
+				func() error { _, err := s.Get(ownerContext(), a); return err },
+				func() error { _, err := s.SignParts(ownerContext(), a, []int{1}); return err },
+				func() error { _, err := s.Complete(ownerContext(), a, CompleteUploadRequest{}); return err },
+				func() error { return s.Abort(ownerContext(), a) },
 			}
 			for _, check := range checks {
 				if !errors.Is(check(), ErrToken) {
@@ -226,7 +231,7 @@ func TestTokenWorksAcrossServiceRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	restarted.now = s.now
-	if _, err := restarted.Get(context.Background(), accessFor(state)); err != nil {
+	if _, err := restarted.Get(ownerContext(), accessFor(state)); err != nil {
 		t.Fatalf("stateless restart failed: %v", err)
 	}
 }
@@ -238,20 +243,20 @@ func TestSigningBounds(t *testing.T) {
 	a := accessFor(state)
 	for _, parts := range [][]int{nil, {0}, {2}, {1, 1}, make([]int, 101)} {
 		before := len(f.calls)
-		if _, err := s.SignParts(context.Background(), a, parts); !errors.Is(err, ErrInvalid) || len(f.calls) != before {
+		if _, err := s.SignParts(ownerContext(), a, parts); !errors.Is(err, ErrInvalid) || len(f.calls) != before {
 			t.Fatal("invalid signing plan reached storage")
 		}
 	}
 	s.now = func() time.Time { return state.ExpiresAt.Add(-5 * time.Second) }
-	if _, err := s.SignParts(context.Background(), a, []int{1}); err != nil || f.signTTLs[0] != 5*time.Second {
+	if _, err := s.SignParts(ownerContext(), a, []int{1}); err != nil || f.signTTLs[0] != 5*time.Second {
 		t.Fatalf("URL TTL not clamped: %v", err)
 	}
 	f.signDelay = time.Second
-	if _, err := s.SignParts(context.Background(), a, []int{1}); !errors.Is(err, ErrToken) {
+	if _, err := s.SignParts(ownerContext(), a, []int{1}); !errors.Is(err, ErrToken) {
 		t.Fatal("late SDK signing produced a URL beyond token expiry")
 	}
 	s.now = func() time.Time { return state.ExpiresAt.Add(-500 * time.Millisecond) }
-	if _, err := s.SignParts(context.Background(), a, []int{1}); !errors.Is(err, ErrToken) {
+	if _, err := s.SignParts(ownerContext(), a, []int{1}); !errors.Is(err, ErrToken) {
 		t.Fatal("less than one second remaining was accepted")
 	}
 }
@@ -268,7 +273,7 @@ func TestCompleteAndRetry(t *testing.T) {
 			f.completeThenErr = true
 		}
 		for range 2 {
-			out, err := s.Complete(context.Background(), accessFor(state), in)
+			out, err := s.Complete(ownerContext(), accessFor(state), in)
 			if err != nil || out.Status != "uploaded_unvalidated" || out.UploadID != state.UploadID {
 				t.Fatalf("completion/recovery failed: %v", err)
 			}
@@ -276,13 +281,13 @@ func TestCompleteAndRetry(t *testing.T) {
 		if count(f.calls, "complete") != 1 {
 			t.Fatal("completion retried a storage write")
 		}
-		if out, err := s.Get(context.Background(), accessFor(state)); err != nil || out.Status != "uploaded_unvalidated" {
+		if out, err := s.Get(ownerContext(), accessFor(state)); err != nil || out.Status != "uploaded_unvalidated" {
 			t.Fatalf("completed status failed: %v", err)
 		}
-		if _, err := s.SignParts(context.Background(), accessFor(state), []int{1}); !errors.Is(err, ErrConflict) {
+		if _, err := s.SignParts(ownerContext(), accessFor(state), []int{1}); !errors.Is(err, ErrConflict) {
 			t.Fatal("signed a completed upload")
 		}
-		if err := s.Abort(context.Background(), accessFor(state)); !errors.Is(err, ErrConflict) || count(f.calls, "abort") != 0 {
+		if err := s.Abort(ownerContext(), accessFor(state)); !errors.Is(err, ErrConflict) || count(f.calls, "abort") != 0 {
 			t.Fatal("attempted to abort a completed object")
 		}
 	}
@@ -311,7 +316,7 @@ func TestCompletionRejectsWrongParts(t *testing.T) {
 			s, f := testService(t)
 			state := start(t, s, 1024)
 			f.parts = parts
-			_, err := s.Complete(context.Background(), accessFor(state), CompleteUploadRequest{Parts: []CompleteUploadPart{{PartNumber: 1, ETag: "tag"}}})
+			_, err := s.Complete(ownerContext(), accessFor(state), CompleteUploadRequest{Parts: []CompleteUploadPart{{PartNumber: 1, ETag: "tag"}}})
 			if err == nil || count(f.calls, "complete") != 0 {
 				t.Fatal("unverified parts completed")
 			}
@@ -324,20 +329,20 @@ func TestAbortAndRace(t *testing.T) {
 	s, f := testService(t)
 	state := start(t, s, 1024)
 	for range 2 {
-		if err := s.Abort(context.Background(), accessFor(state)); err != nil {
+		if err := s.Abort(ownerContext(), accessFor(state)); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := s.Get(context.Background(), accessFor(state)); !errors.Is(err, ErrNotFound) {
+	if _, err := s.Get(ownerContext(), accessFor(state)); !errors.Is(err, ErrNotFound) {
 		t.Fatal("aborted upload reported as active")
 	}
-	if _, err := s.SignParts(context.Background(), accessFor(state), []int{1}); !errors.Is(err, ErrConflict) {
+	if _, err := s.SignParts(ownerContext(), accessFor(state), []int{1}); !errors.Is(err, ErrConflict) {
 		t.Fatal("aborted upload signed")
 	}
 	s, f = testService(t)
 	state = start(t, s, 1024)
 	f.abortRace = true
-	if err := s.Abort(context.Background(), accessFor(state)); !errors.Is(err, ErrConflict) {
+	if err := s.Abort(ownerContext(), accessFor(state)); !errors.Is(err, ErrConflict) {
 		t.Fatal("completion/abort race reported cancellation")
 	}
 }
@@ -354,15 +359,15 @@ func TestBackendFailures(t *testing.T) {
 			var err error
 			switch op {
 			case "begin":
-				_, err = s.Create(context.Background(), CreateUploadRequest{Filename: "a.mp4", SizeBytes: 1, ContentType: "video/mp4"})
+				_, err = s.Create(ownerContext(), CreateUploadRequest{Filename: "a.mp4", SizeBytes: 1, ContentType: "video/mp4"})
 			case "sign":
-				_, err = s.SignParts(context.Background(), accessFor(state), []int{1})
+				_, err = s.SignParts(ownerContext(), accessFor(state), []int{1})
 			case "list":
-				_, err = s.Get(context.Background(), accessFor(state))
+				_, err = s.Get(ownerContext(), accessFor(state))
 			case "head", "complete":
-				_, err = s.Complete(context.Background(), accessFor(state), CompleteUploadRequest{Parts: []CompleteUploadPart{{PartNumber: 1, ETag: "tag"}}})
+				_, err = s.Complete(ownerContext(), accessFor(state), CompleteUploadRequest{Parts: []CompleteUploadPart{{PartNumber: 1, ETag: "tag"}}})
 			case "abort":
-				err = s.Abort(context.Background(), accessFor(state))
+				err = s.Abort(ownerContext(), accessFor(state))
 			}
 			if !errors.Is(err, ErrUnavailable) {
 				t.Fatalf("expected classified provider failure, got %v", err)
@@ -376,11 +381,11 @@ func TestSourceMismatch(t *testing.T) {
 	s, f := testService(t)
 	state := start(t, s, 1024)
 	f.object = &storage.ObjectInfo{SizeBytes: 99, ContentType: "video/mp4"}
-	if _, err := s.Get(context.Background(), accessFor(state)); !errors.Is(err, ErrConflict) {
+	if _, err := s.Get(ownerContext(), accessFor(state)); !errors.Is(err, ErrConflict) {
 		t.Fatal("wrong final size accepted")
 	}
 	f.object = &storage.ObjectInfo{SizeBytes: 1024, ContentType: "text/plain"}
-	if _, err := s.Get(context.Background(), accessFor(state)); !errors.Is(err, ErrConflict) {
+	if _, err := s.Get(ownerContext(), accessFor(state)); !errors.Is(err, ErrConflict) {
 		t.Fatal("wrong declared final content type accepted")
 	}
 }
@@ -392,17 +397,17 @@ func TestCreateInvalidMetadataAndCancellation(t *testing.T) {
 		{}, {Filename: "../a.mp4", ContentType: "video/mp4", SizeBytes: 1},
 		{Filename: "a.mp4", ContentType: "video/mp4", SizeBytes: MaxUploadBytes + 1},
 	} {
-		if _, err := s.Create(context.Background(), in); err == nil {
+		if _, err := s.Create(ownerContext(), in); err == nil {
 			t.Fatal("invalid metadata accepted")
 		}
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(ownerContext())
 	cancel()
 	if _, err := s.Create(ctx, CreateUploadRequest{Filename: "a.mp4", ContentType: "video/mp4", SizeBytes: 1}); !errors.Is(err, context.Canceled) {
 		t.Fatal("cancellation ignored")
 	}
 	s.random = strings.NewReader("")
-	if _, err := s.Create(context.Background(), CreateUploadRequest{Filename: "a.mp4", ContentType: "video/mp4", SizeBytes: 1}); !errors.Is(err, io.EOF) {
+	if _, err := s.Create(ownerContext(), CreateUploadRequest{Filename: "a.mp4", ContentType: "video/mp4", SizeBytes: 1}); !errors.Is(err, io.EOF) {
 		t.Fatal("random source failure ignored")
 	}
 	if len(f.calls) != 0 {

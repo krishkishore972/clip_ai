@@ -21,6 +21,7 @@ var (
 	ErrTooLarge    = errors.New("upload exceeds size limit")
 	ErrInvalid     = errors.New("invalid upload")
 	ErrToken       = errors.New("invalid or expired upload token")
+	ErrUnauthenticated = errors.New("authentication required")
 )
 
 type CreateUploadRequest struct {

@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/krishkishore972/clip_ai/internal/config"
+	"github.com/krishkishore972/clip_ai/internal/upload"
 )
 
 func TestServeRejectsDatabaseFailureWithoutLeakingDSN(t *testing.T) {
@@ -39,8 +40,8 @@ func TestUploadRoutesDevelopmentOnly(t *testing.T) {
 			h.ServeHTTP(w, r)
 			want := http.StatusNotFound
 			if env == "development" {
-				want = http.StatusServiceUnavailable
-				if !strings.Contains(w.Body.String(), `"code":"upload_service_unavailable"`) {
+				want = http.StatusUnauthorized
+				if !strings.Contains(w.Body.String(), `"code":"UNAUTHENTICATED"`) {
 					t.Fatalf("unexpected body: %s", w.Body.String())
 				}
 			}
@@ -56,15 +57,15 @@ func TestUploadRoutesDevelopmentOnly(t *testing.T) {
 
 func TestDevelopmentUploadsStartup(t *testing.T) {
 	t.Setenv("DEV_S3_UPLOAD_ENABLED", "false")
-	if service, err := developmentUploads(context.Background(), "development"); err != nil || service != nil {
+	if service, err := developmentUploads(context.Background(), "development",upload.SQLAssets{}); err != nil || service != nil {
 		t.Fatal("disabled startup attempted upload initialization")
 	}
 	t.Setenv("DEV_S3_UPLOAD_ENABLED", "true")
-	if _, err := developmentUploads(context.Background(), "production"); err == nil {
+	if _, err := developmentUploads(context.Background(), "production",upload.SQLAssets{}); err == nil {
 		t.Fatal("production enabled unguarded uploads")
 	}
 	t.Setenv("AWS_REGION", "")
-	if _, err := developmentUploads(context.Background(), "development"); err == nil {
+	if _, err := developmentUploads(context.Background(), "development",upload.SQLAssets{}); err == nil {
 		t.Fatal("enabled startup accepted missing configuration")
 	}
 	// Construct the real adapter with isolated fake credentials. No upload request
@@ -79,7 +80,7 @@ func TestDevelopmentUploadsStartup(t *testing.T) {
 	} {
 		t.Setenv(key, value)
 	}
-	if service, err := developmentUploads(context.Background(), "development"); err != nil || service == nil {
+	if service, err := developmentUploads(context.Background(), "development",upload.SQLAssets{}); err != nil || service == nil {
 		t.Fatalf("SDK/service composition failed: %v", err)
 	}
 }

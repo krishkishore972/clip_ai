@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/krishkishore972/clip_ai/internal/config"
+	"github.com/krishkishore972/clip_ai/internal/auth"
 	"github.com/krishkishore972/clip_ai/internal/db"
 	"github.com/krishkishore972/clip_ai/internal/handler"
 	"github.com/krishkishore972/clip_ai/internal/httpserver"
@@ -58,19 +59,22 @@ func serve(cfg config.Config, logger *slog.Logger) error {
 	}()
 	logger.Info("database connected")
 
-	uploads, err := developmentUploads(context.Background(), cfg.Env)
+	authConfig, err := config.LoadAuth()
+	if err != nil { return err }
+	requireAuth := auth.New(authConfig,auth.Store{DB:database},logger)
+	uploads, err := developmentUploads(context.Background(), cfg.Env, upload.SQLAssets{DB:database})
 	if err != nil {
 		return fmt.Errorf("initialize development uploads: %w", err)
 	}
 	if uploads != nil {
-		logger.Warn("development S3 uploads enabled without user authentication; do not expose publicly")
+		logger.Warn("development S3 uploads enabled; media validation is not implemented")
 	}
-	srv := httpserver.NewServer(cfg, newHandler(logger, cfg.Env, uploads))
+	srv := httpserver.NewServer(cfg, newHandler(logger, cfg.Env, uploads, requireAuth))
 
 	return run(srv, cfg.ShutdownTimeout, logger)
 }
 
-func developmentUploads(ctx context.Context, env string) (handler.MultipartUploadService, error) {
+func developmentUploads(ctx context.Context, env string, assets upload.AssetRecorder) (handler.MultipartUploadService, error) {
 	cfg, err := config.LoadDevelopmentUpload(env)
 	if err != nil || !cfg.Enabled {
 		return nil, err
@@ -80,6 +84,7 @@ func developmentUploads(ctx context.Context, env string) (handler.MultipartUploa
 		return nil, err
 	}
 	return upload.New(store, upload.Config{
+		Assets:assets, Bucket:cfg.S3.Bucket,
 		SigningSecret: []byte(cfg.SigningSecret), Scope: cfg.S3.Region + "/" + cfg.S3.Bucket,
 		TokenTTL: cfg.TokenTTL, PresignTTL: cfg.S3.PresignTTL,
 	})
@@ -87,15 +92,22 @@ func developmentUploads(ctx context.Context, env string) (handler.MultipartUploa
 
 // newHandler builds the route table and installs middleware. Add routes here
 // as features land; middleware order is outermost-first.
-func newHandler(logger *slog.Logger, env string, uploads handler.MultipartUploadService) http.Handler {
+func newHandler(logger *slog.Logger, env string, uploads handler.MultipartUploadService, authMiddleware ...func(http.Handler) http.Handler) http.Handler {
 	mux := http.NewServeMux()
+	protected := http.NewServeMux()
+	protected.HandleFunc("GET /me",auth.Me)
 
 	mux.HandleFunc("GET /healthz", health)
 	// Temporary development routes. Do not enable outside development until
 	// authentication and server-derived session ownership are implemented.
 	if env == "development" {
-		handler.NewMultipartUploadHandler(uploads, logger).Register(mux)
+		handler.NewMultipartUploadHandler(uploads, logger).Register(protected)
 	}
+	// Fail closed even if a caller forgets to wire authentication.
+	var private http.Handler = http.HandlerFunc(func(w http.ResponseWriter,r *http.Request) { _ = httpserver.WriteError(w,r,http.StatusUnauthorized,"UNAUTHENTICATED","Sign in to continue.",nil) })
+	if len(authMiddleware) == 1 && authMiddleware[0] != nil { private = authMiddleware[0](protected) }
+	mux.Handle("/me", private)
+	if env == "development" { mux.Handle("/uploads",private); mux.Handle("/uploads/",private) }
 
 	return httpserver.Chain(mux,
 		httpserver.RequestID,

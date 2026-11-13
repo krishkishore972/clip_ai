@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/krishkishore972/clip_ai/internal/auth"
 	"github.com/krishkishore972/clip_ai/internal/storage"
 )
 
@@ -37,6 +38,8 @@ type Store interface {
 }
 
 type Config struct {
+	Assets AssetRecorder
+	Bucket string
 	SigningSecret []byte
 	Scope         string // bucket/region binding, not an authorization identity
 	TokenTTL      time.Duration
@@ -44,6 +47,8 @@ type Config struct {
 }
 
 type Service struct {
+	assets AssetRecorder
+	bucket string
 	store      Store
 	secret     []byte
 	scope      string
@@ -54,12 +59,12 @@ type Service struct {
 }
 
 func New(store Store, cfg Config) (*Service, error) {
-	if store == nil || len(cfg.SigningSecret) < 32 || cfg.Scope == "" ||
+	if store == nil || cfg.Assets == nil || cfg.Bucket == "" || len(cfg.SigningSecret) < 32 || cfg.Scope == "" ||
 		cfg.TokenTTL < time.Minute || cfg.TokenTTL > 24*time.Hour ||
 		cfg.PresignTTL < time.Second || cfg.PresignTTL > 15*time.Minute {
 		return nil, errors.New("upload: storage, a secret of at least 32 bytes, scope, token TTL (1m–24h), and signing TTL (1s–15m) are required")
 	}
-	return &Service{store: store, secret: append([]byte(nil), cfg.SigningSecret...), scope: cfg.Scope,
+	return &Service{store: store, assets:cfg.Assets, bucket:cfg.Bucket, secret: append([]byte(nil), cfg.SigningSecret...), scope: cfg.Scope,
 		tokenTTL: cfg.TokenTTL, presignTTL: cfg.PresignTTL, now: time.Now, random: rand.Reader}, nil
 }
 
@@ -78,11 +83,13 @@ func (s *Service) Create(ctx context.Context, in CreateUploadRequest) (UploadSes
 	if err := ctx.Err(); err != nil {
 		return UploadSession{}, err
 	}
+	p, ok := auth.FromContext(ctx)
+	if !ok { return UploadSession{}, ErrUnauthenticated }
 	var id [16]byte
 	if _, err := io.ReadFull(s.random, id[:]); err != nil {
 		return UploadSession{}, fmt.Errorf("upload: generate ID: %w", err)
 	}
-	c := claims{V: 1, ID: hex.EncodeToString(id[:]), Scope: s.scope, Size: in.SizeBytes, PartSize: PartSizeBytes,
+	c := claims{V: 2, UserID:p.UserID, WorkspaceID:p.WorkspaceID, Filename:in.Filename, ID: hex.EncodeToString(id[:]), Scope: s.scope, Size: in.SizeBytes, PartSize: PartSizeBytes,
 		Type: in.ContentType, ExpiresAt: s.now().Add(s.tokenTTL).Unix()}
 	c.Key = "dev-uploads/" + c.ID + "/source" + ext
 	awsID, err := s.store.Begin(ctx, c.Key, c.Type)
@@ -139,11 +146,15 @@ func (s *Service) completed(ctx context.Context, c claims, token string) (Upload
 	if info.SizeBytes != c.Size || info.ContentType != c.Type {
 		return UploadSession{}, ErrConflict
 	}
+	if err := s.assets.SaveCompleted(ctx,CompletedAsset{ID:c.ID, Bucket:s.bucket, Key:c.Key, Filename:c.Filename, ContentType:c.Type, SizeBytes:info.SizeBytes}); err != nil {
+		if errors.Is(err,ErrNotFound) { return UploadSession{}, ErrNotFound }
+		return UploadSession{}, backendError(err)
+	}
 	return state(c, token, "uploaded_unvalidated", nil), nil
 }
 
 func (s *Service) Get(ctx context.Context, a Access) (UploadSession, error) {
-	c, err := s.verify(a)
+	c, err := s.verify(ctx,a)
 	if err != nil {
 		return UploadSession{}, err
 	}
@@ -158,7 +169,7 @@ func (s *Service) Get(ctx context.Context, a Access) (UploadSession, error) {
 }
 
 func (s *Service) SignParts(ctx context.Context, a Access, numbers []int) (SignedUploadParts, error) {
-	c, err := s.verify(a)
+	c, err := s.verify(ctx,a)
 	if err != nil {
 		return SignedUploadParts{}, err
 	}
@@ -211,7 +222,7 @@ func (s *Service) SignParts(ctx context.Context, a Access, numbers []int) (Signe
 }
 
 func (s *Service) Complete(ctx context.Context, a Access, in CompleteUploadRequest) (UploadSession, error) {
-	c, err := s.verify(a)
+	c, err := s.verify(ctx,a)
 	if err != nil {
 		return UploadSession{}, err
 	}
@@ -256,7 +267,7 @@ func (s *Service) Complete(ctx context.Context, a Access, in CompleteUploadReque
 }
 
 func (s *Service) Abort(ctx context.Context, a Access) error {
-	c, err := s.verify(a)
+	c, err := s.verify(ctx,a)
 	if err != nil {
 		return err
 	}

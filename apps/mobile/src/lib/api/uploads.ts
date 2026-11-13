@@ -4,12 +4,18 @@ import type {
   SignedUploadPart,
   SignedUploadParts,
   UploadSession,
+  Me,
 } from "./generated";
+
+export class AuthenticationRequired extends Error {
+  constructor() { super("Your session expired. Sign out and sign in again."); }
+}
 
 // Use fetch directly; tests supply an offline fetch instead of contacting AWS.
 export function createUploadApi(
   baseUrl: string,
   fetcher: typeof fetch = fetch,
+  getToken: () => Promise<string | null>,
 ) {
   let base: URL;
   try {
@@ -49,11 +55,7 @@ export function createUploadApi(
       });
       return await consume(response);
     } catch (error) {
-      // Development diagnostics. Signed S3 URLs stay out of the log.
-      const where = target.startsWith(url)
-        ? target
-        : `${init.method ?? "GET"} ${new URL(target).origin} (signed URL redacted)`;
-      console.warn(`[upload] request failed: ${where}`, error);
+      if (error instanceof AuthenticationRequired) throw error;
       // Native network errors can contain secret signed URLs. Never display them.
       throw new Error(
         signal.aborted
@@ -64,6 +66,15 @@ export function createUploadApi(
       clearTimeout(timer);
       signal.removeEventListener("abort", stop);
     }
+  }
+
+  async function authorization(signal: AbortSignal) {
+    signal.throwIfAborted();
+    let token: string | null;
+    try { token = await getToken(); } catch { throw new AuthenticationRequired(); }
+    signal.throwIfAborted();
+    if (!token) throw new AuthenticationRequired();
+    return { Authorization: `Bearer ${token}` };
   }
 
   async function request<T>(
@@ -79,6 +90,7 @@ export function createUploadApi(
         method,
         headers: {
           Accept: "application/json",
+          ...await authorization(signal),
           ...(body === undefined ? {} : { "Content-Type": "application/json" }),
           ...(session ? { "Upload-Token": session.uploadToken } : {}),
         },
@@ -88,11 +100,7 @@ export function createUploadApi(
       async (response) => {
         const expected = method === "DELETE" ? 204 : path === "" ? 201 : 200;
         if (response.status !== expected) {
-          const body = await response.text().catch(() => "");
-          console.warn(
-            `[upload] ${method} /uploads${path || ""} failed: HTTP ${response.status} ${response.statusText}`,
-            body,
-          );
+          if (response.status === 401) throw new AuthenticationRequired();
           throw new Error(`Upload request failed (HTTP ${response.status}).`);
         }
         if (response.status === 204) return undefined as T;
@@ -105,6 +113,15 @@ export function createUploadApi(
   const path = (session: UploadSession) =>
     `/${encodeURIComponent(session.uploadId)}`;
   return {
+    async me(signal: AbortSignal): Promise<Me> {
+      return send(`${url}/me`, { method:"GET", headers:{ Accept:"application/json", ...await authorization(signal) } }, signal, async response => {
+        if (response.status === 401) throw new AuthenticationRequired();
+        if (response.status !== 200) throw new Error("Could not load your account.");
+        const data: Me = await response.json();
+        if (typeof data?.userId !== "string" || typeof data?.workspaceId !== "string") throw new Error("Invalid account response.");
+        return data;
+      });
+    },
     create: (file: CreateUploadRequest, signal: AbortSignal) =>
       request<UploadSession>("", "POST", signal, undefined, file),
     async signPart(
@@ -155,11 +172,6 @@ export function createUploadApi(
         300_000,
       );
       if (!response.ok) {
-        const body = await response.text().catch(() => "");
-        console.warn(
-          `[upload] part PUT failed: HTTP ${response.status} ${response.statusText}`,
-          body,
-        );
         throw new Error(`Video part upload failed (HTTP ${response.status}).`);
       }
       const eTag = response.headers.get("ETag");

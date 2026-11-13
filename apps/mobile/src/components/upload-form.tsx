@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useAuth } from "@clerk/expo";
 import {
   ActivityIndicator,
   AppState,
@@ -25,6 +26,7 @@ const statusLabels = {
 };
 
 export function UploadForm() {
+  const { getToken } = useAuth();
   const theme = useTheme();
   const [selected, setSelected] = useState<SelectedVideo | null>(null);
   const [operation, setOperation] = useState<"selecting" | "uploading" | null>(
@@ -90,7 +92,7 @@ export function UploadForm() {
         "[upload] using API base",
         process.env.EXPO_PUBLIC_API_URL ?? "(EXPO_PUBLIC_API_URL is unset)",
       );
-      const api = configuredUploadApi();
+      const api = configuredUploadApi(getToken);
       await uploadVideo({
         api,
         file: selected.metadata,

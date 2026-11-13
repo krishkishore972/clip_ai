@@ -269,6 +269,8 @@ func (h *MultipartUploadHandler) available(w http.ResponseWriter, r *http.Reques
 
 func (h *MultipartUploadHandler) serviceError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
+	case errors.Is(err, upload.ErrUnauthenticated):
+		h.fail(w,r,http.StatusUnauthorized,"UNAUTHENTICATED","Sign in to continue.")
 	case errors.Is(err, upload.ErrToken):
 		h.fail(w, r, http.StatusForbidden, "invalid_upload_token", "upload token is invalid or expired")
 	case errors.Is(err, ErrUploadNotFound):

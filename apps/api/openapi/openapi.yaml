@@ -2,11 +2,21 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Video AI API",
-    "version": "0.2.0",
-    "description": "[V] Development stateless upload contract, 2026-11-12. JSON control requests for React Native direct-to-S3 uploads. No user authentication or session database. Routes exist only when API_ENV=development; real S3 wiring requires DEV_S3_UPLOAD_ENABLED=true and valid configuration. Disabled routes return 503 for valid requests. No video bytes are accepted here. Upload tokens and signed URLs are bearer secrets. Each create starts a new upload; no persistent idempotency/deduplication guarantee."
+    "version": "0.3.0",
+    "description": "Authenticated mobile API. Clerk session bearer tokens resolve PostgreSQL users and personal workspaces. Upload routes remain development-only and require DEV_S3_UPLOAD_ENABLED=true for storage. V2 Upload-Token capabilities additionally bind user/workspace ownership; legacy v1 tokens are rejected. Verified completed uploads are persisted with uploaded_unvalidated status. Each create starts a new upload; no create deduplication guarantee. No video bytes are accepted here. Never send authentication headers to S3."
   },
-  "security": [],
+  "security": [{"ClerkSession": []}],
   "paths": {
+    "/me": {
+      "get": {
+        "operationId": "getCurrentUser",
+        "description": "Resolve the verified Clerk identity to one persistent application user and personal workspace. Concurrent first requests provision transactionally. No client identity or email-based linking is accepted.",
+        "responses": {
+          "200": {"description": "Current application identity", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Me"}}}},
+          "default": {"$ref": "#/components/responses/Error"}
+        }
+      }
+    },
     "/uploads": {
       "post": {
         "operationId": "createMultipartUpload",
@@ -22,7 +32,7 @@
       "parameters": [{"$ref": "#/components/parameters/UploadId"}, {"$ref": "#/components/parameters/UploadToken"}],
       "get": {
         "operationId": "getMultipartUpload",
-        "description": "Authoritative S3 part status while uploading; HEAD recovery after completion. Requires the original token and local file for resume. No persisted user/session state or revocation.",
+        "description": "Authoritative S3 part status or HEAD recovery after completion, restricted to the authenticated capability owner. Completed HEAD recovery also ensures the owned asset is persisted. No per-token revocation or mobile resume guarantee.",
         "responses": {
           "200": {"$ref": "#/components/responses/UploadSession"},
           "default": {"$ref": "#/components/responses/Error"}
@@ -41,7 +51,7 @@
       "parameters": [{"$ref": "#/components/parameters/UploadId"}, {"$ref": "#/components/parameters/UploadToken"}],
       "post": {
         "operationId": "signMultipartUploadParts",
-        "description": "Refreshable signed UploadPart URLs. Send raw chunk bytes using PUT and returned headers; Host comes from the URL automatically. Never use multipart/form-data. Verifies upload token and active S3 upload; part numbers must fit the signed plan. URL lifetime is at most 15 minutes and bounded by token expiration. Token possession is not user identity.",
+        "description": "Refreshable signed UploadPart URLs. Requires Clerk authentication plus an owner-bound Upload-Token. Send raw bytes with PUT and only the returned S3 headers, never Authorization or Upload-Token. Verifies active S3 upload and signed plan. URL lifetime is at most 15 minutes and bounded by token expiration.",
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SignUploadPartsRequest"}}}},
         "responses": {
           "200": {"description": "Signed parts", "headers": {"Cache-Control": {"schema": {"type": "string", "const": "no-store"}}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SignedUploadParts"}}}},
@@ -63,8 +73,11 @@
     }
   },
   "components": {
+    "securitySchemes": {
+      "ClerkSession": {"type": "http", "scheme": "bearer", "bearerFormat": "JWT", "description": "Clerk session token from the configured issuer. Only for Go control endpoints, never S3."}
+    },
     "parameters": {
-      "UploadToken": {"name": "Upload-Token", "in": "header", "required": true, "description": "HMAC-signed upload capability from create; binds upload ID, S3 key/ID, bucket/region scope, size/part plan and expiry. Never log it or place it in a URL. Not user authentication.", "schema": {"type": "string", "minLength": 1, "maxLength": 4096}},
+      "UploadToken": {"name": "Upload-Token", "in": "header", "required": true, "description": "V2 HMAC-signed capability binding upload, user/workspace, original filename, storage scope, size/part plan and expiry. Requires Clerk authentication too. Legacy v1 tokens rejected. Never log or put in URLs.", "schema": {"type": "string", "minLength": 1, "maxLength": 4096}},
       "UploadId": {"name": "uploadId", "in": "path", "required": true, "description": "Application upload ID, never an S3 key or client-provided AWS upload ID", "schema": {"$ref": "#/components/schemas/Token"}}
     },
     "responses": {
@@ -74,12 +87,13 @@
         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/UploadSession"}}}
       },
       "Error": {
-        "description": "400 invalid JSON/metadata/parts/upload ID; 403 missing/invalid/expired upload token; 404 upload/object missing; 409 state conflict; 413 body/file too large; 415 non-JSON content; 500 internal error; 503 service disabled or storage unavailable. Control JSON bodies are limited to 1 MiB. Router-level 404/405 responses use net/http defaults.",
+        "description": "401 UNAUTHENTICATED for missing/invalid Clerk session; 400 invalid request; 403 missing/invalid/expired/legacy upload token; 404 upload/object missing or owned by someone else; 409 state conflict; 413 too large; 415 non-JSON; 500 internal; 503 identity, database, or storage unavailable. No sensitive provider data in errors. JSON limit 1 MiB.",
         "headers": {"Cache-Control": {"schema": {"type": "string", "const": "no-store"}}},
         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/APIError"}}}
       }
     },
     "schemas": {
+      "Me": {"type": "object", "required": ["userId", "workspaceId"], "properties": {"userId": {"type": "string"}, "workspaceId": {"type": "string"}}},
       "Token": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9_.:-]+$"},
       "PartNumber": {"type": "integer", "minimum": 1, "maximum": 10000},
       "CreateUploadRequest": {

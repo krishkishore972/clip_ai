@@ -15,6 +15,7 @@ import (
 
 	"github.com/krishkishore972/clip_ai/internal/storage"
 	"github.com/krishkishore972/clip_ai/internal/upload"
+	"github.com/krishkishore972/clip_ai/internal/auth"
 )
 
 // This simulates S3 metadata only. It does NOT prove real video transfer or S3
@@ -27,6 +28,10 @@ type controlFlowStore struct {
 	completed bool
 	aborted   bool
 	calls     int
+}
+
+func (s *controlFlowStore) SaveCompleted(ctx context.Context,_ upload.CompletedAsset) error {
+	if _, ok := auth.FromContext(ctx); !ok { return upload.ErrUnauthenticated }; return nil
 }
 
 func (s *controlFlowStore) Begin(_ context.Context, key, mediaType string) (string, error) {
@@ -91,12 +96,14 @@ func (s *controlFlowStore) Head(_ context.Context, key string) (storage.ObjectIn
 func TestStatelessUploadHTTPControlFlow(t *testing.T) {
 	t.Parallel()
 	store := &controlFlowStore{}
-	service, err := upload.New(store, upload.Config{SigningSecret: []byte(strings.Repeat("test-secret-", 4)),
+	service, err := upload.New(store, upload.Config{Assets:store,Bucket:"test-bucket",SigningSecret: []byte(strings.Repeat("test-secret-", 4)),
 		Scope: "test-region/test-bucket", TokenTTL: time.Hour, PresignTTL: 15 * time.Minute})
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := httptest.NewServer(uploadRouter(service))
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request) {
+		uploadRouter(service).ServeHTTP(w,r.WithContext(auth.WithPrincipal(r.Context(),auth.Principal{UserID:"test-user", WorkspaceID:"test-workspace"})))
+	}))
 	defer server.Close()
 	client := server.Client()
 	client.Timeout = 5 * time.Second
