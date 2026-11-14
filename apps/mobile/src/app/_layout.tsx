@@ -1,14 +1,16 @@
 import { ClerkProvider } from "@clerk/expo";
 import { tokenCache } from "@clerk/expo/token-cache";
 import { DarkTheme, ThemeProvider } from "expo-router";
-import { NativeTabs } from "expo-router/native-tabs";
+import { Tabs } from "expo-router/js-tabs";
 import { useFonts } from "expo-font";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 
 import { AuthGate } from "@/components/auth-gate";
+import { FloatingTabBar } from "@/components/floating-tab-bar";
 import { displayFonts } from "@/design-system/fonts";
+import { nativeColors } from "@/design-system/tokens";
 
 import { GluestackUIProvider } from "@/components/ui/gluestack-ui-provider";
 import "@/src/global.css";
@@ -32,10 +34,10 @@ export default function RootLayout() {
   }, []);
   if (!fontsLoaded) {
     return (
-      <View className="flex-1 items-center justify-center gap-4 bg-black p-6">
-        {!fontError && <ActivityIndicator color="#F0F424" />}
+      <View className="flex-1 items-center justify-center gap-4 bg-background p-6">
+        {!fontError && <ActivityIndicator color={nativeColors.primary} />}
         <Text
-          className="text-center text-base text-white"
+          className="text-center text-base text-foreground"
           accessibilityRole={fontError ? "alert" : undefined}
         >
           {fontError
@@ -53,40 +55,24 @@ export default function RootLayout() {
             ...DarkTheme,
             colors: {
               ...DarkTheme.colors,
-              background: "#000000",
-              card: "#111114",
-              primary: "#F0F424",
+              background: nativeColors.background,
+              card: nativeColors.card,
+              primary: nativeColors.primary,
             },
           }}
         >
           <AuthGate>
             {/* AuthGate only mounts this navigator for a provisioned session, so
                 the first tab (Home) is always the signed-in landing screen. */}
-            <NativeTabs
-              backgroundColor="#000000"
-              iconColor={{ default: "#8E8E96", selected: "#F0F424" }}
-              labelStyle={{
-                default: { color: "#8E8E96", fontSize: 11 },
-                selected: { color: "#F0F424", fontSize: 11 },
-              }}
-              indicatorColor="#1F1F23"
-              rippleColor="#2A2A2E"
-              labelVisibilityMode="labeled"
+            <Tabs
               backBehavior="history"
+              screenOptions={{ headerShown: false }}
+              tabBar={(props) => <FloatingTabBar {...props} />}
             >
-              <NativeTabs.Trigger name="index">
-                <NativeTabs.Trigger.Label>Home</NativeTabs.Trigger.Label>
-                <NativeTabs.Trigger.Icon sf="house.fill" md="home" />
-              </NativeTabs.Trigger>
-              <NativeTabs.Trigger name="account">
-                <NativeTabs.Trigger.Label>Account</NativeTabs.Trigger.Label>
-                <NativeTabs.Trigger.Icon sf="person.fill" md="person" />
-              </NativeTabs.Trigger>
-              <NativeTabs.Trigger name="upload">
-                <NativeTabs.Trigger.Label>Upload</NativeTabs.Trigger.Label>
-                <NativeTabs.Trigger.Icon sf="plus.square.fill" md="add_box" />
-              </NativeTabs.Trigger>
-            </NativeTabs>
+              <Tabs.Screen name="index" options={{ title: "Home" }} />
+              <Tabs.Screen name="upload" options={{ title: "Upload" }} />
+              <Tabs.Screen name="account" options={{ title: "Account" }} />
+            </Tabs>
           </AuthGate>
         </ThemeProvider>
       </ClerkProvider>

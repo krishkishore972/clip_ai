@@ -136,7 +136,7 @@ export function ProgressMeter({
       accessibilityRole="progressbar"
       accessibilityLabel={label}
       accessibilityValue={{ min: 0, max: 100, now: percent }}
-      className="h-2 overflow-hidden rounded-full border border-border bg-black"
+      className="h-2 overflow-hidden rounded-full border border-border bg-primary-foreground"
     >
       <ProgressFilledTrack className="h-full rounded-full bg-primary" />
     </Progress>

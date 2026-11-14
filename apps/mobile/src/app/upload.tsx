@@ -25,7 +25,7 @@ export default function UploadScreen() {
         </View>
         <ScrollView
           contentContainerClassName="grow w-full max-w-[640px] self-center p-6"
-          contentContainerStyle={{ paddingBottom: 32 }}
+          contentContainerStyle={{ paddingBottom: 128 }}
         >
           <UploadForm />
         </ScrollView>

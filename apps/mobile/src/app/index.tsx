@@ -46,7 +46,7 @@ export default function HomeScreen() {
           </Pressable>
         </View>
 
-        <View className="flex-1 items-center justify-center gap-5 px-8 pb-10">
+        <View className="flex-1 items-center justify-center gap-5 px-8 pb-28">
           <Image
             source={require("../../assets/images/projects-empty.png")}
             className="h-52 w-52"
@@ -63,6 +63,7 @@ export default function HomeScreen() {
           <View className="mt-2 w-[220px]">
             <ActionButton
               label="Upload a video"
+              variant="secondary"
               onPress={() => router.navigate("/upload")}
             />
           </View>

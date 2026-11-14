@@ -47,7 +47,7 @@ export default function AccountScreen() {
 
         <ScrollView
           contentContainerClassName="grow w-full max-w-[640px] self-center gap-6 p-6"
-          contentContainerStyle={{ paddingBottom: 32 }}
+          contentContainerStyle={{ paddingBottom: 128 }}
         >
           <Surface>
             <View className="flex-row items-center gap-4">

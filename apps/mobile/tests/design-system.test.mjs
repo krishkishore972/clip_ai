@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import vm from "node:vm";
 import {
+  nativeColors,
   progressPercent,
   textTones,
   textVariants,
@@ -108,6 +109,59 @@ test("user-selected brand colors are exact in both palettes", () => {
   }
   assert.equal(palettes.dark.background, "0 0 0");
   assert.equal(palettes.dark.foreground, "255 255 255");
+});
+
+test("native props resolve to semantic tokens, never literal hex values", () => {
+  const rgbToHex = (rgb) =>
+    `#${rgb
+      .split(" ")
+      .map((channel) => Number(channel).toString(16).padStart(2, "0"))
+      .join("")
+      .toUpperCase()}`;
+  assert.equal(nativeColors.background, rgbToHex(palettes.dark.background));
+  assert.equal(nativeColors.card, rgbToHex(palettes.dark.card));
+  assert.equal(nativeColors.secondary, rgbToHex(palettes.dark.secondary));
+  assert.equal(nativeColors.border, rgbToHex(palettes.dark.border));
+  assert.equal(nativeColors.primary, rgbToHex(palettes.dark.primary));
+  assert.equal(nativeColors.foreground, rgbToHex(palettes.dark.foreground));
+  assert.equal(
+    nativeColors.mutedForeground,
+    rgbToHex(palettes.dark["muted-foreground"]),
+  );
+
+  for (const file of [
+    "../src/app/_layout.tsx",
+    "../src/components/auth-gate.tsx",
+    "../src/components/floating-tab-bar.tsx",
+  ]) {
+    const source = readFileSync(new URL(file, import.meta.url), "utf8");
+    assert.ok(
+      !/#[0-9a-f]{6}\b/i.test(source),
+      `${file} must use nativeColors instead of literal colors`,
+    );
+  }
+});
+
+test("product UI uses semantic color tokens instead of raw palette classes", () => {
+  const files = [
+    "../src/app/_layout.tsx",
+    "../src/app/index.tsx",
+    "../src/app/account.tsx",
+    "../src/app/upload.tsx",
+    "../src/components/auth-gate.tsx",
+    "../src/components/upload-form.tsx",
+    "../src/components/floating-tab-bar.tsx",
+    "../src/design-system/index.tsx",
+  ];
+  const rawPalette =
+    /\b(?:bg|text|border|ring|from|to|via|fill|stroke)-(?:black|white|gray|grey|neutral|zinc|slate|red|green|blue|yellow|orange|purple|pink|teal)\b/;
+  for (const file of files) {
+    const source = readFileSync(new URL(file, import.meta.url), "utf8");
+    assert.ok(
+      !rawPalette.test(source),
+      `${file} must use a semantic token, not a raw palette class`,
+    );
+  }
 });
 
 test("SF Pro faces resolve to supplied upright assets and matching CSS aliases", () => {
@@ -229,36 +283,49 @@ test("brand lockup uses the generated logo asset on both auth surfaces", () => {
   assert.equal((account.match(/chorus-logo\.png/g) ?? []).length, 1);
 });
 
-test("authenticated shell uses native tabs for Home, Account and Upload", () => {
+test("authenticated shell groups Home, Upload and Account in a floating pill", () => {
   const layout = readFileSync(
     new URL("../src/app/_layout.tsx", import.meta.url),
     "utf8",
   );
-  assert.ok(layout.includes('from "expo-router/native-tabs"'));
-  assert.ok(!layout.includes('"expo-router/unstable-native-tabs"'));
-  for (const [name, label] of [
-    ["index", "Home"],
-    ["account", "Account"],
-    ["upload", "Upload"],
-  ]) {
-    assert.ok(layout.includes(`<NativeTabs.Trigger name="${name}">`), name);
-    assert.ok(
-      layout.includes(
-        `<NativeTabs.Trigger.Label>${label}</NativeTabs.Trigger.Label>`,
-      ),
-      label,
-    );
-  }
-  // Tab bar follows the brand palette rather than platform defaults.
+  assert.ok(layout.includes('from "expo-router/js-tabs"'));
+  assert.ok(!layout.includes("native-tabs"));
   assert.ok(
-    layout.includes('iconColor={{ default: "#8E8E96", selected: "#F0F424" }}'),
+    layout.includes("tabBar={(props) => <FloatingTabBar {...props} />}"),
   );
-  assert.ok(!layout.includes("BottomBar"));
 
+  // Upload is the middle tab and Account is the right-most one.
+  const upload = layout.indexOf('<Tabs.Screen name="upload"');
+  const account = layout.indexOf('<Tabs.Screen name="account"');
+  const homeTab = layout.indexOf('<Tabs.Screen name="index"');
+  assert.ok(homeTab < upload, "Home must be the first tab");
+  assert.ok(upload < account, "Account must come after Upload");
+
+  assert.ok(!layout.includes("BottomBar"));
   assert.equal(
     textVariants.screenTitle,
     "font-display-bold text-[34px] font-normal leading-[40px]",
   );
+
+  const bar = readFileSync(
+    new URL("../src/components/floating-tab-bar.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.ok(bar.includes('accessibilityRole="tab"'));
+  assert.ok(bar.includes("bg-secondary"));
+  assert.ok(bar.includes("rounded-full"));
+  assert.ok(bar.includes("bg-primary"));
+
+  // The bar stays fixed at the bottom: it must never be animated away, and its
+  // opaque band must hide the content that scrolls underneath it.
+  assert.ok(bar.includes("bottom-0"));
+  assert.ok(bar.includes("bg-background"));
+  assert.ok(!bar.includes("Animated"));
+  assert.ok(!bar.includes("translateY"));
+  const order = bar.indexOf("index:");
+  const uploadEntry = bar.indexOf("upload:");
+  const accountEntry = bar.indexOf("account:");
+  assert.ok(order < uploadEntry && uploadEntry < accountEntry);
 
   for (const file of ["index", "account", "upload"]) {
     assert.ok(
@@ -277,6 +344,7 @@ test("authenticated shell uses native tabs for Home, Account and Upload", () => 
   assert.ok(home.includes("No projects yet"));
   assert.ok(home.includes("projects-empty.png"));
   assert.ok(home.includes('router.navigate("/upload")'));
+  assert.match(home, /label="Upload a video"\s+variant="secondary"/);
   assert.ok(home.includes('router.navigate("/account")'));
 
   const art = readFileSync(

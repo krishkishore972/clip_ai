@@ -20,6 +20,25 @@ export const textTones = {
   success: "text-success",
 } as const;
 
+/**
+ * Resolved values for native props that cannot consume NativeWind classes
+ * (SVG icon strokes, ActivityIndicator, the navigation theme).
+ *
+ * These mirror the dark semantic tokens in src/global.css. The app shell is
+ * always dark, so there is deliberately no light counterpart here. A design
+ * test asserts that every value still matches its CSS token.
+ */
+export const nativeColors = {
+  background: "#000000",
+  card: "#111114",
+  secondary: "#1C1C20",
+  border: "#3C3C42",
+  foreground: "#FFFFFF",
+  primary: "#F0F424",
+  primaryForeground: "#000000",
+  mutedForeground: "#AAAAB0",
+} as const;
+
 export function progressPercent(value: number): number {
   return Number.isFinite(value)
     ? Math.max(0, Math.min(100, Math.floor(value)))

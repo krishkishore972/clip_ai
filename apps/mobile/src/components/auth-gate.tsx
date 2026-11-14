@@ -9,6 +9,7 @@ import { ActivityIndicator, Image, ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { ActionButton, AppText, Surface } from "@/design-system";
+import { nativeColors } from "@/design-system/tokens";
 import { configuredUploadApi } from "@/lib/api/mobile-client";
 import type { Me } from "@/lib/api/generated";
 import {
@@ -137,7 +138,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
       <AuthScreen>
         <AppText variant="heading">Chorus Clip</AppText>
         <Surface>
-          <ActivityIndicator color="#F0F424" />
+          <ActivityIndicator color={nativeColors.primary} />
           <AppText accessibilityLiveRegion="polite">
             Loading your session…
           </AppText>
@@ -221,7 +222,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
         </>
       ) : (
         <Surface>
-          <ActivityIndicator color="#F0F424" />
+          <ActivityIndicator color={nativeColors.primary} />
           <AppText accessibilityLiveRegion="polite">
             Connecting to your account…
           </AppText>
