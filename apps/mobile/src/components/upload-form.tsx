@@ -1,21 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/expo";
-import {
-  ActivityIndicator,
-  AppState,
-  Pressable,
-  StyleSheet,
-  View,
-} from "react-native";
+import { AppState, View } from "react-native";
 
-import { Spacing } from "@/constants/theme";
-import { useTheme } from "@/hooks/use-theme";
+import {
+  ActionButton,
+  AppText,
+  ProgressMeter,
+  StatusBadge,
+  Surface,
+} from "@/design-system";
 import { configuredUploadApi } from "@/lib/api/mobile-client";
 import { pickVideo, type SelectedVideo } from "@/lib/uploads/native-video";
 import { uploadVideo, type UploadProgress } from "@/lib/uploads/upload-video";
-
-import { ThemedText } from "./themed-text";
-import { ThemedView } from "./themed-view";
 
 const sizeLabel = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
 const statusLabels = {
@@ -27,7 +23,6 @@ const statusLabels = {
 
 export function UploadForm() {
   const { getToken } = useAuth();
-  const theme = useTheme();
   const [selected, setSelected] = useState<SelectedVideo | null>(null);
   const [operation, setOperation] = useState<"selecting" | "uploading" | null>(
     null,
@@ -126,118 +121,77 @@ export function UploadForm() {
     : 0;
   const complete = progress?.phase === "complete";
   return (
-    <ThemedView style={styles.form}>
-      <ThemedText type="smallBold" themeColor="textSecondary">
-        DIRECT TO S3 · DEVELOPMENT
-      </ThemedText>
-      <ThemedText type="title">Upload a video</ThemedText>
-      <ThemedText themeColor="textSecondary">
-        Select a local video to upload directly to your private S3 bucket.
-      </ThemedText>
-      <ThemedView type="backgroundElement" style={styles.card}>
-        <ThemedText type="smallBold">
+    <View className="gap-4">
+      <StatusBadge label="Private upload · Development" />
+      <AppText variant="title" accessibilityRole="header">
+        Your next clip starts here.
+      </AppText>
+      <AppText tone="secondary">
+        Choose a video to store privately. Your original stays untouched.
+      </AppText>
+      <Surface>
+        <AppText variant="heading">
           {selected?.metadata.filename ?? "No video selected"}
-        </ThemedText>
-        <ThemedText type="small" themeColor="textSecondary">
+        </AppText>
+        <AppText variant="caption" tone="secondary">
           {selected
             ? `${sizeLabel(selected.metadata.sizeBytes)} · ${selected.metadata.contentType}`
             : "MP4, MOV or WebM · up to 2 GB"}
-        </ThemedText>
-        <Pressable
-          accessibilityRole="button"
+        </AppText>
+        <ActionButton
+          label={selected ? "Choose another video" : "Select video"}
+          variant="secondary"
           disabled={busy}
+          busy={operation === "selecting"}
+          busyLabel="Opening files…"
           onPress={select}
-          style={[
-            styles.button,
-            { borderColor: theme.textSecondary },
-            busy && styles.disabled,
-          ]}
-        >
-          <ThemedText type="smallBold">
-            {selected ? "Choose another video" : "Select video"}
-          </ThemedText>
-        </Pressable>
-        <ThemedText type="small" themeColor="textSecondary">
-          The original is never modified. Keep the video available on this
-          device until the upload finishes.
-        </ThemedText>
-      </ThemedView>
+        />
+        <AppText variant="caption" tone="secondary">
+          Keep the video available on this device until the upload finishes.
+        </AppText>
+      </Surface>
       {progress && (
-        <View style={styles.form}>
-          <View
-            accessibilityRole="progressbar"
-            accessibilityLabel="Uploaded video parts"
-            accessibilityValue={{ min: 0, max: 100, now: percentage }}
-            style={[styles.track, { backgroundColor: theme.backgroundElement }]}
-          >
-            <View style={[styles.fill, { width: `${percentage}%` }]} />
-          </View>
-          <ThemedText type="small">
+        <View className="gap-4">
+          <ProgressMeter value={percentage} label="Uploaded video parts" />
+          <AppText variant="caption" tone="secondary">
             {percentage}% · {sizeLabel(progress.completedBytes)} /{" "}
             {sizeLabel(progress.totalBytes)}
-          </ThemedText>
-          <ThemedText type="smallBold" accessibilityLiveRegion="polite">
+          </AppText>
+          <AppText variant="label" accessibilityLiveRegion="polite">
             {statusLabels[progress.phase]}
-          </ThemedText>
-          <ThemedText type="small" themeColor="textSecondary">
+          </AppText>
+          <AppText variant="caption" tone="secondary">
             Progress counts confirmed parts. Upload is complete only after
             finalization.
-          </ThemedText>
+          </AppText>
         </View>
       )}
-      {busy && <ActivityIndicator color={theme.text} />}
       {!!message && (
-        <ThemedText type="small" accessibilityLiveRegion="polite">
+        <AppText variant="caption" accessibilityLiveRegion="polite">
           {message}
-        </ThemedText>
+        </AppText>
       )}
       {!complete && (
-        <Pressable
-          accessibilityRole="button"
+        <ActionButton
+          label="Upload video"
           disabled={busy || !selected}
+          busy={operation === "uploading"}
+          busyLabel="Uploading video…"
           onPress={start}
-          style={[
-            styles.button,
-            styles.primary,
-            (busy || !selected) && styles.disabled,
-          ]}
-        >
-          <ThemedText type="smallBold" style={styles.primaryText}>
-            Upload video
-          </ThemedText>
-        </Pressable>
+        />
       )}
       {operation === "uploading" && (
-        <Pressable
-          accessibilityRole="button"
+        <ActionButton
+          label="Cancel upload"
+          variant="danger"
           onPress={() => controller.current?.abort()}
-          style={[styles.button, { borderColor: theme.textSecondary }]}
-        >
-          <ThemedText type="smallBold">Cancel upload</ThemedText>
-        </Pressable>
+        />
       )}
-      <ThemedText type="small" themeColor="textSecondary">
+      <AppText variant="caption" tone="secondary">
         Keep the app in the foreground. Leaving it stops the upload. Failed
-        uploads start fresh; resume is not supported. This dev flow has no user
-        authentication.
-      </ThemedText>
-    </ThemedView>
+        uploads start fresh; resume is not supported. Uploads are linked to your
+        signed-in account. Validation and clip analysis are not available yet.
+      </AppText>
+    </View>
   );
 }
-
-const styles = StyleSheet.create({
-  form: { gap: Spacing.three },
-  card: { gap: Spacing.three, padding: Spacing.four, borderRadius: 16 },
-  button: {
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: Spacing.three,
-    alignItems: "center",
-    minHeight: 48,
-  },
-  primary: { backgroundColor: "#245DDD", borderColor: "#245DDD" },
-  primaryText: { color: "#FFFFFF" },
-  disabled: { opacity: 0.45 },
-  track: { height: 8, borderRadius: 4, overflow: "hidden" },
-  fill: { height: "100%", backgroundColor: "#245DDD" },
-});

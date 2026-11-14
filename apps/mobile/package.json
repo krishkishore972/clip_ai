@@ -64,7 +64,8 @@
     "lint": "expo lint",
     "check-types": "tsc --noEmit",
     "gen:api": "node scripts/generate-api-types.mjs",
-    "test:uploads": "node scripts/test-uploads.mjs"
+    "test:uploads": "node scripts/test-uploads.mjs",
+    "test:design-system": "node --test tests/design-system.test.mjs"
   },
   "private": true,
   "overrides": {
