@@ -219,6 +219,68 @@ test("brand lockup uses the generated logo asset on both auth surfaces", () => {
     new URL("../src/components/auth-gate.tsx", import.meta.url),
     "utf8",
   );
-  assert.equal((gate.match(/chorus-logo\.png/g) ?? []).length, 2);
+  assert.equal((gate.match(/chorus-logo\.png/g) ?? []).length, 1);
   assert.ok(gate.includes("CUT TO THE MOMENT."));
+
+  const account = readFileSync(
+    new URL("../src/app/account.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.equal((account.match(/chorus-logo\.png/g) ?? []).length, 1);
+});
+
+test("authenticated shell uses native tabs for Home, Account and Upload", () => {
+  const layout = readFileSync(
+    new URL("../src/app/_layout.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.ok(layout.includes('from "expo-router/native-tabs"'));
+  assert.ok(!layout.includes('"expo-router/unstable-native-tabs"'));
+  for (const [name, label] of [
+    ["index", "Home"],
+    ["account", "Account"],
+    ["upload", "Upload"],
+  ]) {
+    assert.ok(layout.includes(`<NativeTabs.Trigger name="${name}">`), name);
+    assert.ok(
+      layout.includes(
+        `<NativeTabs.Trigger.Label>${label}</NativeTabs.Trigger.Label>`,
+      ),
+      label,
+    );
+  }
+  // Tab bar follows the brand palette rather than platform defaults.
+  assert.ok(
+    layout.includes('iconColor={{ default: "#8E8E96", selected: "#F0F424" }}'),
+  );
+  assert.ok(!layout.includes("BottomBar"));
+
+  assert.equal(
+    textVariants.screenTitle,
+    "font-display-bold text-[34px] font-normal leading-[40px]",
+  );
+
+  for (const file of ["index", "account", "upload"]) {
+    assert.ok(
+      !readFileSync(
+        new URL(`../src/app/${file}.tsx`, import.meta.url),
+        "utf8",
+      ).includes("bottom-bar"),
+      `${file} must not import the removed custom bar`,
+    );
+  }
+
+  const home = readFileSync(
+    new URL("../src/app/index.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.ok(home.includes("No projects yet"));
+  assert.ok(home.includes("projects-empty.png"));
+  assert.ok(home.includes('router.navigate("/upload")'));
+  assert.ok(home.includes('router.navigate("/account")'));
+
+  const art = readFileSync(
+    new URL("../assets/images/projects-empty.png", import.meta.url),
+  );
+  assert.equal(art.subarray(1, 4).toString(), "PNG");
 });

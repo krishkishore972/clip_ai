@@ -1,12 +1,12 @@
 import { ClerkProvider } from "@clerk/expo";
 import { tokenCache } from "@clerk/expo/token-cache";
 import { DarkTheme, ThemeProvider } from "expo-router";
+import { NativeTabs } from "expo-router/native-tabs";
 import { useFonts } from "expo-font";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 
-import AppTabs from "@/components/app-tabs";
 import { AuthGate } from "@/components/auth-gate";
 import { displayFonts } from "@/design-system/fonts";
 
@@ -23,7 +23,7 @@ if (!publishableKey) {
 
 SplashScreen.preventAutoHideAsync();
 
-export default function TabLayout() {
+export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts(displayFonts);
   useEffect(() => {
     // Show an explicit loading/error screen instead of leaving the native splash
@@ -60,7 +60,33 @@ export default function TabLayout() {
           }}
         >
           <AuthGate>
-            <AppTabs />
+            {/* AuthGate only mounts this navigator for a provisioned session, so
+                the first tab (Home) is always the signed-in landing screen. */}
+            <NativeTabs
+              backgroundColor="#000000"
+              iconColor={{ default: "#8E8E96", selected: "#F0F424" }}
+              labelStyle={{
+                default: { color: "#8E8E96", fontSize: 11 },
+                selected: { color: "#F0F424", fontSize: 11 },
+              }}
+              indicatorColor="#1F1F23"
+              rippleColor="#2A2A2E"
+              labelVisibilityMode="labeled"
+              backBehavior="history"
+            >
+              <NativeTabs.Trigger name="index">
+                <NativeTabs.Trigger.Label>Home</NativeTabs.Trigger.Label>
+                <NativeTabs.Trigger.Icon sf="house.fill" md="home" />
+              </NativeTabs.Trigger>
+              <NativeTabs.Trigger name="account">
+                <NativeTabs.Trigger.Label>Account</NativeTabs.Trigger.Label>
+                <NativeTabs.Trigger.Icon sf="person.fill" md="person" />
+              </NativeTabs.Trigger>
+              <NativeTabs.Trigger name="upload">
+                <NativeTabs.Trigger.Label>Upload</NativeTabs.Trigger.Label>
+                <NativeTabs.Trigger.Icon sf="plus.square.fill" md="add_box" />
+              </NativeTabs.Trigger>
+            </NativeTabs>
           </AuthGate>
         </ThemeProvider>
       </ClerkProvider>

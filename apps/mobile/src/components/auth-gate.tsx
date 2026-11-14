@@ -1,4 +1,4 @@
-import { useAuth, useClerk } from "@clerk/expo";
+import { useAuth } from "@clerk/expo";
 import { useHostedAuth } from "@clerk/expo/hosted-auth";
 import { isRunningInExpoGo } from "expo";
 import { getBundleOrigin } from "expo/internal/bundle-origin";
@@ -30,7 +30,6 @@ function AuthScreen({ children }: { children: ReactNode }) {
 
 export function AuthGate({ children }: { children: ReactNode }) {
   const { isLoaded, isSignedIn, sessionId, getToken } = useAuth();
-  const { signOut } = useClerk();
   const { startHostedAuth } = useHostedAuth();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -133,19 +132,6 @@ export function AuthGate({ children }: { children: ReactNode }) {
     }
   }
 
-  async function logout() {
-    setBusy(true);
-    setMessage("");
-    try {
-      await signOut();
-      setAccount(null);
-    } catch {
-      setMessage("Could not sign out. Please try again.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   if (!isLoaded)
     return (
       <AuthScreen>
@@ -215,66 +201,35 @@ export function AuthGate({ children }: { children: ReactNode }) {
       </AuthSafeArea>
     );
   const current = account?.sessionId === sessionId ? account : null;
+  // The signed-in navigator is the child; never wrap it in a layout View.
+  if (current?.me) return <>{children}</>;
   return (
-    <View className="flex-1 bg-background">
-      <AuthSafeArea edges={["top", "left", "right"]} className="bg-background">
-        <View className="flex-row flex-wrap items-center justify-between gap-4 px-6 py-4">
-          <View className="flex-row items-center gap-3">
-            <Image
-              source={require("../../assets/images/chorus-logo.png")}
-              className="h-8 w-8"
-              resizeMode="contain"
-              accessibilityRole="image"
-              accessibilityLabel="Chorus Clip"
-            />
-            <AppText variant="heading">Chorus Clip</AppText>
-          </View>
+    <AuthScreen>
+      <AppText variant="title">Getting your space ready.</AppText>
+      {current?.error ? (
+        <>
+          <AppText tone="danger" accessibilityRole="alert">
+            {current.error}
+          </AppText>
           <ActionButton
-            label="Sign out"
-            variant="secondary"
-            disabled={busy}
-            onPress={logout}
+            label="Retry account setup"
+            onPress={() => {
+              setAccount(null);
+              setAttempt((value) => value + 1);
+            }}
           />
-        </View>
-      </AuthSafeArea>
-      {!!message && (
-        <AppText tone="danger" className="px-6" accessibilityRole="alert">
-          {message}
-        </AppText>
-      )}
-      {current?.me ? (
-        <View key={sessionId} className="flex-1">
-          {children}
-        </View>
+        </>
       ) : (
-        <AuthScreen>
-          <AppText variant="title">Getting your space ready.</AppText>
-          {current?.error ? (
-            <>
-              <AppText tone="danger" accessibilityRole="alert">
-                {current.error}
-              </AppText>
-              <ActionButton
-                label="Retry account setup"
-                onPress={() => {
-                  setAccount(null);
-                  setAttempt((value) => value + 1);
-                }}
-              />
-            </>
-          ) : (
-            <Surface>
-              <ActivityIndicator color="#F0F424" />
-              <AppText accessibilityLiveRegion="polite">
-                Connecting to your account…
-              </AppText>
-              <AppText variant="caption" tone="secondary">
-                Your private workspace must load before uploading.
-              </AppText>
-            </Surface>
-          )}
-        </AuthScreen>
+        <Surface>
+          <ActivityIndicator color="#F0F424" />
+          <AppText accessibilityLiveRegion="polite">
+            Connecting to your account…
+          </AppText>
+          <AppText variant="caption" tone="secondary">
+            Your private workspace must load before uploading.
+          </AppText>
+        </Surface>
       )}
-    </View>
+    </AuthScreen>
   );
 }
