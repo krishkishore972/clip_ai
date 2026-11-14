@@ -86,6 +86,10 @@ test("every text tone maps to a CSS semantic color utility", () => {
     assert.ok(css.includes(`--color-${className.slice(5)}:`), className);
   }
   assert.equal(
+    textVariants.hero,
+    "font-display-bold text-[42px] font-normal leading-[46px]",
+  );
+  assert.equal(
     textVariants.caption,
     "font-display text-sm font-normal leading-5",
   );
@@ -192,4 +196,29 @@ test("compatibility entry preserves lazy UI exports and forwards the real regist
   assert.equal(context.module.exports.View, "NativeWindView");
   assert.equal(context.module.exports.AssetRegistry, registry);
   assert.equal(Object.hasOwn(components, "AssetRegistry"), false);
+});
+
+test("brand lockup uses the generated logo asset on both auth surfaces", () => {
+  const png = readFileSync(
+    new URL("../assets/images/chorus-logo.png", import.meta.url),
+  );
+  assert.equal(png.subarray(1, 4).toString(), "PNG");
+  assert.equal(png.readUInt32BE(16), 1024);
+  assert.equal(png.readUInt32BE(20), 1024);
+
+  const svg = readFileSync(
+    new URL("../assets/brand/chorus-logo.svg", import.meta.url),
+    "utf8",
+  );
+  assert.ok(
+    svg.includes('fill="#F0F424"'),
+    "editable source keeps brand yellow",
+  );
+
+  const gate = readFileSync(
+    new URL("../src/components/auth-gate.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.equal((gate.match(/chorus-logo\.png/g) ?? []).length, 2);
+  assert.ok(gate.includes("CUT TO THE MOMENT."));
 });

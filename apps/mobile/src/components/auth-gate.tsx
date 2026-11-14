@@ -5,7 +5,7 @@ import { getBundleOrigin } from "expo/internal/bundle-origin";
 import { getInitialURL, getLinkingURL } from "expo-linking";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { styled } from "nativewind";
-import { ActivityIndicator, ScrollView, View } from "react-native";
+import { ActivityIndicator, Image, ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { ActionButton, AppText, Surface } from "@/design-system";
@@ -160,61 +160,75 @@ export function AuthGate({ children }: { children: ReactNode }) {
     );
   if (!isSignedIn)
     return (
-      <AuthScreen>
-        <View className="flex-row items-center justify-between gap-4">
-          <AppText variant="heading">Chorus Clip</AppText>
-          <View className="rounded-full bg-primary px-4 py-2">
-            <AppText variant="label" className="text-primary-foreground">
-              YOUR CREATIVE SPACE
+      <AuthSafeArea className="flex-1 bg-background">
+        <ScrollView
+          bounces={false}
+          contentContainerClassName="grow w-full max-w-[640px] self-center px-6 pb-8 pt-10"
+        >
+          <View className="flex-1 items-center justify-center gap-5 py-16">
+            <Image
+              source={require("../../assets/images/chorus-logo.png")}
+              className="h-24 w-24"
+              resizeMode="contain"
+              accessibilityRole="image"
+              accessibilityLabel="Chorus Clip"
+            />
+            <AppText
+              variant="hero"
+              accessibilityRole="header"
+              className="text-center"
+            >
+              Welcome to{"\n"}Chorus Clip
             </AppText>
+            <View className="rounded-full border border-border bg-card px-4 py-2">
+              <AppText
+                variant="label"
+                tone="accent"
+                className="tracking-[0.14em]"
+              >
+                CUT TO THE MOMENT.
+              </AppText>
+            </View>
           </View>
-        </View>
-        <View className="gap-4 pt-6">
-          <AppText variant="display" accessibilityRole="header">
-            Your story.{"\n"}Starts here.
-          </AppText>
-          <AppText tone="secondary">
-            A private home for your videos. Bring your original. Make room for
-            what comes next.
-          </AppText>
-        </View>
-        <View className="gap-6 rounded-[32px] bg-accent p-6">
-          <AppText variant="label" className="text-accent-foreground">
-            01 / BRING YOUR VIDEO
-          </AppText>
-          <AppText variant="title" className="text-accent-foreground">
-            Keep the original.{"\n"}Keep it yours.
-          </AppText>
-          <View className="self-start rounded-full bg-highlight px-4 py-2">
-            <AppText variant="label" className="text-highlight-foreground">
-              Private uploads
+          <View className="gap-4">
+            <ActionButton
+              label="Continue to sign in"
+              busy={busy}
+              busyLabel="Opening sign-in…"
+              onPress={authenticate}
+            />
+            <AppText variant="caption" tone="secondary" className="text-center">
+              You will finish signing in securely in your browser, then come
+              back here.
             </AppText>
+            {!!message && (
+              <AppText
+                tone="danger"
+                className="text-center"
+                accessibilityRole="alert"
+              >
+                {message}
+              </AppText>
+            )}
           </View>
-        </View>
-        <View className="gap-4">
-          <ActionButton
-            label="Sign in / Create account"
-            busy={busy}
-            busyLabel="Opening sign-in…"
-            onPress={authenticate}
-          />
-          <AppText variant="caption" tone="secondary" className="text-center">
-            Continue securely in your browser, then return here.
-          </AppText>
-          {!!message && (
-            <AppText tone="danger" accessibilityRole="alert">
-              {message}
-            </AppText>
-          )}
-        </View>
-      </AuthScreen>
+        </ScrollView>
+      </AuthSafeArea>
     );
   const current = account?.sessionId === sessionId ? account : null;
   return (
     <View className="flex-1 bg-background">
       <AuthSafeArea edges={["top", "left", "right"]} className="bg-background">
         <View className="flex-row flex-wrap items-center justify-between gap-4 px-6 py-4">
-          <AppText variant="heading">Chorus Clip</AppText>
+          <View className="flex-row items-center gap-3">
+            <Image
+              source={require("../../assets/images/chorus-logo.png")}
+              className="h-8 w-8"
+              resizeMode="contain"
+              accessibilityRole="image"
+              accessibilityLabel="Chorus Clip"
+            />
+            <AppText variant="heading">Chorus Clip</AppText>
+          </View>
           <ActionButton
             label="Sign out"
             variant="secondary"

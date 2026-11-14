@@ -2,6 +2,7 @@
  * Semantic colors are defined once in src/global.css, shared with gluestack.
  */
 export const textVariants = {
+  hero: "font-display-bold text-[42px] font-normal leading-[46px]",
   display: "font-display text-[44px] font-normal leading-[48px]",
   title: "font-display-bold text-3xl font-normal leading-9",
   heading: "font-display-medium text-xl font-normal leading-7",
