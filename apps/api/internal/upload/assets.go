@@ -2,7 +2,9 @@ package upload
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 
@@ -18,16 +20,28 @@ type AssetRecorder interface {
 	SaveCompleted(context.Context, CompletedAsset) error
 }
 
-type SQLAssets struct{ DB *sql.DB }
+type SQLAssets struct {
+	DB *sql.DB
+}
 
-// SaveCompleted does not adopt legacy/unowned rows or overwrite media metadata.
-// Retries succeed only when all immutable fields and ownership match.
-func (s SQLAssets) SaveCompleted(ctx context.Context, in CompletedAsset) error {
-	p, ok := auth.FromContext(ctx)
+// SaveCompleted atomically records the completed asset and its initial
+// validation event. Retries preserve existing ownership and media metadata.
+func (s SQLAssets) SaveCompleted(
+	ctx context.Context,
+	asset CompletedAsset,
+) error {
+	principal, ok := auth.FromContext(ctx)
 	if !ok {
 		return ErrUnauthenticated
 	}
-	const query = `
+
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin completed asset transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	const saveAssetQuery = `
 		INSERT INTO media_assets (
 			id,
 			user_id,
@@ -61,23 +75,69 @@ func (s SQLAssets) SaveCompleted(ctx context.Context, in CompletedAsset) error {
 		RETURNING id
 	`
 
-	var id string
-	err := s.DB.QueryRowContext(
+	var assetID string
+
+	err = tx.QueryRowContext(
 		ctx,
-		query,
-		in.ID,
-		p.UserID,
-		in.Bucket,
-		in.Key,
-		in.Filename,
-		in.ContentType,
-		in.SizeBytes,
-	).Scan(&id)
+		saveAssetQuery,
+		asset.ID,
+		principal.UserID,
+		asset.Bucket,
+		asset.Key,
+		asset.Filename,
+		asset.ContentType,
+		asset.SizeBytes,
+	).Scan(&assetID)
+
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
 	}
 	if err != nil {
 		return fmt.Errorf("persist completed asset: %w", err)
 	}
+
+	var randomID [16]byte
+	if _, err := rand.Read(randomID[:]); err != nil {
+		return fmt.Errorf("generate outbox event ID: %w", err)
+	}
+
+	eventID := hex.EncodeToString(randomID[:])
+	dedupeKey := "validate:" + assetID + ":initial"
+
+	const insertEventQuery = `
+		INSERT INTO outbox_events (
+			id,
+			asset_id,
+			task_type,
+			queue_name,
+			payload,
+			dedupe_key
+		)
+		VALUES (
+			$1,
+			$2,
+			'media:validate',
+			'validation',
+			jsonb_build_object('assetId', $2::text),
+			$3
+		)
+		ON CONFLICT (dedupe_key) DO NOTHING
+	`
+
+	_, err = tx.ExecContext(
+		ctx,
+		insertEventQuery,
+		eventID,
+		assetID,
+		dedupeKey,
+	)
+	if err != nil {
+		return fmt.Errorf("persist validation outbox event: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit completed asset transaction: %w", err)
+	}
+
 	return nil
 }

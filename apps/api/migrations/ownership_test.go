@@ -157,6 +157,9 @@ func testIdentityAndOwnership(t *testing.T, ctx context.Context, pool *sql.DB, p
 	if err := assets.SaveCompleted(auth.WithPrincipal(ctx, auth.Principal{UserID: "not-in-db"}), in); !errors.Is(err, upload.ErrNotFound) {
 		t.Fatal("nonexistent application user created an asset")
 	}
+	t.Run("completed asset outbox transaction", func(t *testing.T) {
+		testCompletedAssetOutbox(t, ctx, pool)
+	})
 }
 
 func testDirectOwnershipMigration(t *testing.T, ctx context.Context, pool *sql.DB, provider *goose.Provider) {
