@@ -91,8 +91,17 @@ func (s *Service) Create(ctx context.Context, in CreateUploadRequest) (UploadSes
 	if _, err := io.ReadFull(s.random, id[:]); err != nil {
 		return UploadSession{}, fmt.Errorf("upload: generate ID: %w", err)
 	}
-	c := claims{V: 2, UserID: p.UserID, WorkspaceID: p.WorkspaceID, Filename: in.Filename, ID: hex.EncodeToString(id[:]), Scope: s.scope, Size: in.SizeBytes, PartSize: PartSizeBytes,
-		Type: in.ContentType, ExpiresAt: s.now().Add(s.tokenTTL).Unix()}
+	c := claims{
+		V:         3,
+		UserID:    p.UserID,
+		Filename:  in.Filename,
+		ID:        hex.EncodeToString(id[:]),
+		Scope:     s.scope,
+		Size:      in.SizeBytes,
+		PartSize:  PartSizeBytes,
+		Type:      in.ContentType,
+		ExpiresAt: s.now().Add(s.tokenTTL).Unix(),
+	}
 	c.Key = "dev-uploads/" + c.ID + "/source" + ext
 	awsID, err := s.store.Begin(ctx, c.Key, c.Type)
 	if err != nil {

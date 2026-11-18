@@ -115,6 +115,8 @@ Verified facts:
 - [V, 2026-11-13] Database update superseding the older inventory: startup connects the user's `database/sql` + pgx pool using required `DATABASE_URL`. Goose v3.30.1 and `migrations/00001_create_media_assets.sql` now exist; explicit `make migrate-up` / `make migrate-status` use `cmd/migrate` with embedded SQL. Version 1 and its columns are verified in the development DB. Upload handlers still do not write asset records. Ownership/authentication is deferred by user request, not waived for public release. Rollback tests require a direct/session `TEST_DATABASE_URL` to a test DB; the configured connection ignores startup `search_path`, so the test now guards isolation before SQL. Disposable PostgreSQL 16 tests pass; see the existing roadmap for the initial isolation failure and correction. Never run Down against application data or modify an applied migration.
 - [V, 2026-11-13] Auth superseding older unauthenticated-upload guidance: user approved Clerk (existing Chorus Clip app), hosted mobile sign-in, and local personal workspaces. `internal/auth`, GET /me, migration 00002, v2 user/workspace-bound upload capabilities, and owned completion persistence now exist. Require `CLERK_ISSUER`/`CLERK_SECRET_KEY`; never bypass auth in development. Legacy v1 tokens are rejected; NULL-owned assets remain inaccessible. New migration was tested only on disposable PostgreSQL, not applied to the application DB; ask first. Existing Clerk provider is preserved; do not rerun init or inspect environment/claim files. Go race/integration checks, 20 offline mobile client tests, and Android/iOS bundling with a fake key pass. Real Clerk/device/S3 sign-in-to-upload workflow and native UI interaction remain unverified. Default web check blockers remain; do not fix them without approval. See ADR-0003 and the existing roadmap for setup and limitations.
 - [V, 2026-11-13] Migration-status update superseding the pending-00002 note above: user approved applying migration 00002 to the configured development database. Goose Up succeeded; both versions 00001/00002 report applied, and repeat Up is a no-op. No rollback or legacy-ownership assignment occurred. Real sign-in-to-owned-upload device verification remains pending; approval does not extend to future migrations or production.
+- [V, scope update 2026-11-18] User removed personal/team workspaces from the product. Direct ownership replaces the historical guidance above: `Principal` and `/me` use only `userId`, assets use `user_id`, and v3 upload capabilities bind the user (v1/v2 rejected). New migration 00004 preserves verified existing personal ownership, keeps NULL legacy ownership inaccessible and removes obsolete ownership tables/column. Do not edit applied migration 00002 or reintroduce teams/organizations speculatively. Applying 00004 to the configured DB requires separate approval; until applied, the new asset SQL is not compatible with that DB. Its Down intentionally refuses because removed identities cannot be reconstructed safely. See ADR-0006 and the roadmap for actual verification status.
+- [V, migration status update 2026-11-18] User approved applying 00004 to the configured development database without a backup. Goose Up succeeded, versions 00001–00004 now report applied, and repeat Up is a no-op. This supersedes the pending-00004 guidance above; no backup, rollback or process restart was performed. Applied migration 00004 is now immutable. Approval does not extend to future migrations or production; live post-migration sign-in/upload remains unverified.
 - [V, 2026-11-12] `go test -race -cover ./...`, `make lint` (vet + formatting), and `go build ./...` pass from `apps/api` after the handler addition.
 - [V, 2026-11-12] HTTP hardening rejects trailing JSON delimiters/values via an EOF check, marshals responses before commitment with a generic `500` fallback, and aborts panicked committed responses rather than appending JSON. Regression tests cover these paths, including real HTTP connections. `WriteJSON` and `WriteError` now return errors for caller-side handling; callers must not write a second response. Streaming/WebSocket support remains deferred; these fixes do not establish production readiness.
 - [V, 2026-11-12] `docs/` exists locally, including the roadmap and acceptance criteria. The 2026-11-06 inventory recorded no `apps/llm`, `packages/contracts`, `docker-compose.yml`, or CI workflow; re-check those paths before relying on that older inventory.
@@ -164,7 +166,7 @@ opus-pro-report/              # research evidence — read-only
 | Concern | Owner | Never |
 |---|---|---|
 | Project/edit state, persistence | `apps/api` | web or llm writing to Postgres |
-| Auth, authorization, signed URLs | `apps/api` | trusting a client-supplied `orgId`/`userId` |
+| Auth, authorization, signed URLs | `apps/api` | trusting a client-supplied `userId` |
 | Media probing, transcode, render | `apps/api` workers | render inside a request handler |
 | Model/provider calls | `apps/llm` | provider keys in `apps/web` or the browser bundle |
 | Provider API keys | `apps/llm` env only | logging keys, committing `.env` |
@@ -314,7 +316,7 @@ Defined in `docs/architecture/editor-project-schema.md`; this is the short versi
 interface VideoProject {
   id: string;              // stable, opaque (e.g. uuidv7)
   version: number;         // monotonic; every accepted mutation increments
-  orgId: string;
+  userId: string;           // direct owner; personal-only product
   sourceAssets: MediaAsset[];
   settings: { width: number; height: number; fps: Rational; sampleRate: number };
   tracks: Track[];         // ordered; index = z-order for visual tracks
@@ -366,7 +368,7 @@ Rules:
 1. **web → api only.** The browser never talks to Postgres, S3, or a model provider directly. Uploads use a presigned URL issued by `api`.
 2. **api → llm only.** `llm` is stateless: it receives input (transcript, frames, prompt, limits) and returns a **proposal**. It does not persist project state and does not decide what gets applied.
 3. **AI proposes, the user (or an explicit rule) applies.** No irreversible edit is applied silently.
-4. **Auth is server-side.** `api` derives `orgId`/`userId` from the token. A client-supplied identity is never trusted.
+4. **Auth is server-side.** `api` verifies Clerk identity and resolves the internal `userId` server-side. A client-supplied identity is never trusted. Assets and projects belong directly to users; there are no product workspaces, teams or organizations.
 5. **Contract-first.** `apps/api/openapi/openapi.yaml` is the API truth. Go handler types come from it; `packages/contracts` is generated from it. A handler that diverges from the spec fails the contract test.
 6. **Idempotency.** Mutating endpoints accept an idempotency key. Job creation is safe to retry.
 7. **Errors are structured.** `{ code, message, details?, traceId }` with a stable machine-readable `code`. No stack traces or provider responses in client-facing errors.
@@ -383,6 +385,16 @@ Rules:
 ---
 
 ## 9. Code conventions
+
+### Formatting and readability — all file types
+
+- **[V, user requirement 2026-11-18]** All new or modified hand-maintained code and configuration must be consistently formatted and human-readable, regardless of extension. This includes `.go`, `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.sql`, `.json`, `.jsonc`, `.css`, `.yaml`, `.yml`, `.md`, shell scripts, Makefiles, and any other file types used in the project.
+- Use the existing workspace formatter and configuration for each supported file type: `gofmt` for Go, and the configured Prettier/ESLint tooling where applicable. Do not introduce or change formatter dependencies/configuration merely to format a file. Where no formatter is configured, format manually to match the language and surrounding conventions.
+- Prefer clear indentation, whitespace, and logical grouping. Break complex expressions, long argument lists, queries, and nested structures across lines rather than compressing them into difficult-to-read statements. Keep short, simple constructs concise; do not fight formatter output.
+- **Embedded languages must also be readable.** `gofmt` does not format SQL inside Go raw strings. Format nontrivial SQL as multiline queries with uppercase keywords, separate clauses, indented joins/subqueries, and one selected/inserted column or predicate per line where helpful. Separate query text from multiline bound arguments and result handling; retain parameter binding and preserve query semantics.
+- Format only files relevant to the requested change; do not run repository-wide write-formatting or reformat unrelated user work. Preserve syntax-sensitive whitespace such as Makefile recipe tabs.
+- Do not hand-format generated files, lockfiles, vendored code, or research evidence contrary to their ownership rules. Regenerate generated output through its designated tool instead.
+- Before reporting completion, run applicable formatting/lint checks on the changed files and inspect the diff for accidental changes. State which checks actually ran and any tooling gaps; a formatter passing does not replace a readability review.
 
 ### Go (`apps/api`)
 
@@ -652,7 +664,7 @@ Never: invent a requirement, silently widen scope, or paper over a failing test.
 - Render workers run in isolation with CPU/memory/time limits; a malformed file must fail one job, not the host.
 - Temp files are namespaced per job and deleted on success, failure, and cancellation.
 - Log identifiers, not content. No transcripts, frames, or prompt bodies in logs by default.
-- Every mutating endpoint authorizes against the owning `orgId`, not just authentication.
+- Every mutating endpoint authorizes against the owning internal `userId`, not just authentication.
 
 ---
 
@@ -669,7 +681,7 @@ Record outcomes as ADRs in `docs/architecture/decisions.md`.
 | 5 | Preview strategy: WebCodecs + canvas, or server-rendered proxies? | Phase 5 |
 | 6 | Transcript model: our own ASR vs a hosted provider? | Phase 7 |
 | 7 | Storage: which S3-compatible provider, and what is the local dev stand-in? | Phase 5 |
-| 8 | Auth: which identity provider, and is `orgId` a first-class concept on day one? | Phase 5 |
+| 8 | Auth: resolved — Clerk with direct internal user ownership; no team/workspace model | Phase 5 |
 | 9 | Upload ceiling and duration ceiling for v1? | Phase 3/5 |
 | 10 | Do we ship a public API in v1, or is OpenAPI internal-only at first? | Phase 4 |
 

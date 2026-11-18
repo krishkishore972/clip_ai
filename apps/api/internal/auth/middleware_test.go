@@ -37,7 +37,7 @@ func (u *fakeUsers) Resolve(_ context.Context, issuer, subject string) (Principa
 	if u.fail {
 		return Principal{}, errors.New("sensitive database details")
 	}
-	return Principal{UserID: "internal-user", WorkspaceID: "personal-workspace"}, nil
+	return Principal{UserID: "internal-user"}, nil
 }
 
 func TestClerkAuthentication(t *testing.T) {
@@ -126,7 +126,7 @@ func TestClerkAuthentication(t *testing.T) {
 			if tc.want == 401 && (users.calls != before || !strings.Contains(w.Body.String(), "UNAUTHENTICATED")) {
 				t.Fatal("invalid identity reached persistence or wrong error envelope")
 			}
-			if tc.want == 200 && !strings.Contains(w.Body.String(), `"workspaceId":"personal-workspace"`) {
+			if tc.want == 200 && strings.TrimSpace(w.Body.String()) != `{"userId":"internal-user"}` {
 				t.Fatal("/me did not return internal identity")
 			}
 		})

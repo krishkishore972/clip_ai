@@ -72,9 +72,24 @@ func TestMediaAssetsMigration(t *testing.T) {
 		t.Fatalf("repeat Up should be a no-op: %v", err)
 	}
 
-	_, err = pool.ExecContext(ctx, `INSERT INTO media_assets
-		(id, storage_bucket, storage_key, declared_content_type, size_bytes)
-		VALUES ('test-asset', 'test-bucket', 'originals/test.mp4', 'video/mp4', 1024)`)
+	const insertAssetQuery = `
+		INSERT INTO media_assets (
+			id,
+			storage_bucket,
+			storage_key,
+			declared_content_type,
+			size_bytes
+		)
+		VALUES (
+			'test-asset',
+			'test-bucket',
+			'originals/test.mp4',
+			'video/mp4',
+			1024
+		)
+	`
+
+	_, err = pool.ExecContext(ctx, insertAssetQuery)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,11 +98,38 @@ func TestMediaAssetsMigration(t *testing.T) {
 	var filename, videoCodec, audioCodec sql.NullString
 	var validated sql.NullTime
 	var created, updated time.Time
-	err = pool.QueryRowContext(ctx, `SELECT status, original_filename, duration_ms, width, height,
-		fps_num, fps_den, video_codec, audio_codec, validated_at, created_at, updated_at
-		FROM media_assets WHERE id = 'test-asset'`).Scan(
-		&status, &filename, &duration, &width, &height, &fpsNum, &fpsDen,
-		&videoCodec, &audioCodec, &validated, &created, &updated)
+	const findAssetQuery = `
+		SELECT
+			status,
+			original_filename,
+			duration_ms,
+			width,
+			height,
+			fps_num,
+			fps_den,
+			video_codec,
+			audio_codec,
+			validated_at,
+			created_at,
+			updated_at
+		FROM media_assets
+		WHERE id = 'test-asset'
+	`
+
+	err = pool.QueryRowContext(ctx, findAssetQuery).Scan(
+		&status,
+		&filename,
+		&duration,
+		&width,
+		&height,
+		&fpsNum,
+		&fpsDen,
+		&videoCodec,
+		&audioCodec,
+		&validated,
+		&created,
+		&updated,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,30 +176,76 @@ func TestMediaAssetsMigration(t *testing.T) {
 		{"duplicate storage location", "other-asset", "originals/test.mp4"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := pool.ExecContext(ctx, `INSERT INTO media_assets
-				(id, storage_bucket, storage_key, declared_content_type, size_bytes)
-				VALUES ($1, 'test-bucket', $2, 'video/mp4', 1024)`, tc.id, tc.key)
+			const insertDuplicateAssetQuery = `
+				INSERT INTO media_assets (
+					id,
+					storage_bucket,
+					storage_key,
+					declared_content_type,
+					size_bytes
+				)
+				VALUES (
+					$1,
+					'test-bucket',
+					$2,
+					'video/mp4',
+					1024
+				)
+			`
+
+			_, err := pool.ExecContext(
+				ctx,
+				insertDuplicateAssetQuery,
+				tc.id,
+				tc.key,
+			)
 			var pgErr *pgconn.PgError
 			if !errors.As(err, &pgErr) || pgErr.Code != "23505" {
 				t.Fatalf("expected uniqueness violation, got %v", err)
 			}
 		})
 	}
+	const updateStatusQuery = `
+		UPDATE media_assets
+		SET status = $1
+		WHERE id = 'test-asset'
+	`
+
 	for _, state := range []string{"validating", "rejected", "validation_failed"} {
-		if _, err := pool.ExecContext(ctx, "UPDATE media_assets SET status = $1 WHERE id = 'test-asset'", state); err != nil {
+		if _, err := pool.ExecContext(ctx, updateStatusQuery, state); err != nil {
 			t.Fatalf("valid state rejected: %v", err)
 		}
 	}
 	// A silent video is valid: audio_codec stays NULL. FPS is an exact rational.
-	_, err = pool.ExecContext(ctx, `UPDATE media_assets SET status = 'ready', duration_ms = 1000,
-		width = 1920, height = 1080, fps_num = 30000, fps_den = 1001,
-		video_codec = 'h264', validated_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-		WHERE id = 'test-asset'`)
+	const markReadyQuery = `
+		UPDATE media_assets
+		SET
+			status = 'ready',
+			duration_ms = 1000,
+			width = 1920,
+			height = 1080,
+			fps_num = 30000,
+			fps_den = 1001,
+			video_codec = 'h264',
+			validated_at = CURRENT_TIMESTAMP,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE id = 'test-asset'
+	`
+
+	_, err = pool.ExecContext(ctx, markReadyQuery)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var num, den int
-	if err := pool.QueryRowContext(ctx, "SELECT fps_num, fps_den FROM media_assets WHERE id = 'test-asset'").Scan(&num, &den); err != nil || num != 30000 || den != 1001 {
+	const findFrameRateQuery = `
+		SELECT
+			fps_num,
+			fps_den
+		FROM media_assets
+		WHERE id = 'test-asset'
+	`
+
+	if err := pool.QueryRowContext(ctx, findFrameRateQuery).Scan(&num, &den); err != nil || num != 30000 || den != 1001 {
 		t.Fatalf("rational FPS was not preserved: %v", err)
 	}
 	down, err := provider.Down(ctx)
@@ -172,7 +260,7 @@ func TestMediaAssetsMigration(t *testing.T) {
 		t.Fatalf("Up after Down: %v", err)
 	}
 	var count int
-	if err := pool.QueryRowContext(ctx, "SELECT count(*) FROM media_assets").Scan(&count); err != nil || count != 0 {
+	if err := pool.QueryRowContext(ctx, "SELECT COUNT(*) FROM media_assets").Scan(&count); err != nil || count != 0 {
 		t.Fatalf("reapplied migration did not create an empty table: %v", err)
 	}
 	t.Run("users and asset ownership", func(t *testing.T) { testIdentityAndOwnership(t, ctx, pool, provider) })
@@ -192,14 +280,41 @@ func TestMediaAssetsApplied(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	var version int64
-	if err := pool.QueryRowContext(ctx, "SELECT max(version_id) FROM goose_db_version WHERE is_applied").Scan(&version); err != nil || version < 1 {
+	const findVersionQuery = `
+		SELECT MAX(version_id)
+		FROM goose_db_version
+		WHERE is_applied
+	`
+
+	if err := pool.QueryRowContext(ctx, findVersionQuery).Scan(&version); err != nil || version < 1 {
 		t.Fatalf("expected applied migration version 1: %v", err)
 	}
 	// Resolving the columns verifies the actual table, not just Goose bookkeeping.
-	rows, err := pool.QueryContext(ctx, `SELECT id, storage_bucket, storage_key, original_filename,
-		declared_content_type, size_bytes, status, duration_ms, width, height, fps_num, fps_den,
-		video_codec, audio_codec, failure_code, created_at, updated_at, validated_at
-		FROM media_assets LIMIT 0`)
+	const inspectColumnsQuery = `
+		SELECT
+			id,
+			storage_bucket,
+			storage_key,
+			original_filename,
+			declared_content_type,
+			size_bytes,
+			status,
+			duration_ms,
+			width,
+			height,
+			fps_num,
+			fps_den,
+			video_codec,
+			audio_codec,
+			failure_code,
+			created_at,
+			updated_at,
+			validated_at
+		FROM media_assets
+		LIMIT 0
+	`
+
+	rows, err := pool.QueryContext(ctx, inspectColumnsQuery)
 	if err != nil {
 		t.Fatal("media_assets is missing or its columns do not match migration 1")
 	}

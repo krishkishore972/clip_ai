@@ -244,7 +244,6 @@ test("/me uses the current session token and returns internal identity", async (
       assert.equal(request.headers["Upload-Token"], undefined);
       return response(200, {
         userId: "internal-user",
-        workspaceId: "personal-workspace",
       });
     },
     async () => `session-${++reads}`,
@@ -252,10 +251,24 @@ test("/me uses the current session token and returns internal identity", async (
   for (let i = 0; i < 2; i++) {
     assert.deepEqual(await api.me(new AbortController().signal), {
       userId: "internal-user",
-      workspaceId: "personal-workspace",
     });
   }
   assert.equal(reads, 2);
+});
+
+test("/me rejects missing or empty user ownership", async () => {
+  for (const data of [null, {}, { userId: "" }, { userId: 123 }]) {
+    const api = createUploadApi(
+      API,
+      async () => response(200, data),
+      async () => "test-session",
+    );
+    await assert.rejects(
+      api.me(new AbortController().signal),
+      // The shared request wrapper intentionally sanitizes response errors.
+      /Request failed or timed out/,
+    );
+  }
 });
 
 test("cancellation settles active PUT and closes reader before remote abort", async () => {

@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/krishkishore972/clip_ai/internal/auth"
 )
 
 // JSON is valid YAML. Keeping this OpenAPI document JSON-compatible lets these
@@ -35,6 +37,7 @@ func TestUploadContract(t *testing.T) {
 		t.Fatalf("unexpected OpenAPI version: %s", spec.OpenAPI)
 	}
 	for path, methods := range map[string][]string{
+		"/me":                            {"get"},
 		"/uploads":                       {"post"},
 		"/uploads/{uploadId}":            {"get", "delete"},
 		"/uploads/{uploadId}/parts/sign": {"post"},
@@ -45,6 +48,19 @@ func TestUploadContract(t *testing.T) {
 				t.Errorf("missing contract operation %s %s", method, path)
 			}
 		}
+	}
+	me, ok := spec.Components.Schemas["Me"]
+	principal := reflect.TypeOf(auth.Principal{})
+	if !ok || len(me.Properties) != principal.NumField() || len(me.Required) != principal.NumField() {
+		t.Fatal("Me contract must match the direct-user principal")
+	}
+	for i := range principal.NumField() {
+		if _, ok := me.Properties[principal.Field(i).Tag.Get("json")]; !ok {
+			t.Fatal("Me contract is missing a principal field")
+		}
+	}
+	if me.AdditionalProperties == nil || *me.AdditionalProperties {
+		t.Fatal("Me contract must reject additional identity fields")
 	}
 	for _, value := range []any{
 		CreateUploadRequest{}, SignUploadPartsRequest{}, CompleteUploadRequest{}, CompleteUploadPart{},

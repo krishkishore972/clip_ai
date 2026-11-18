@@ -135,10 +135,7 @@ export function createUploadApi(
           if (response.status !== 200)
             throw new Error("Could not load your account.");
           const data: Me = await response.json();
-          if (
-            typeof data?.userId !== "string" ||
-            typeof data?.workspaceId !== "string"
-          )
+          if (typeof data?.userId !== "string" || data.userId.length === 0)
             throw new Error("Invalid account response.");
           return data;
         },

@@ -129,7 +129,7 @@ func (s *assetStub) SaveCompleted(_ context.Context, a CompletedAsset) error {
 	return s.err
 }
 func ownerContext() context.Context {
-	return auth.WithPrincipal(context.Background(), auth.Principal{UserID: "test-user", WorkspaceID: "test-workspace"})
+	return auth.WithPrincipal(context.Background(), auth.Principal{UserID: "test-user"})
 }
 
 func testService(t *testing.T) (*Service, *storeStub) {
@@ -161,7 +161,7 @@ func TestUploadOwnershipAndLegacyTokens(t *testing.T) {
 	t.Parallel()
 	s, f := testService(t)
 	state := start(t, s, 1024)
-	for _, p := range []auth.Principal{{UserID: "other-user", WorkspaceID: "other-workspace"}, {UserID: "other-user", WorkspaceID: "test-workspace"}, {UserID: "test-user", WorkspaceID: "other-workspace"}} {
+	for _, p := range []auth.Principal{{UserID: "other-user"}} {
 		ctx := auth.WithPrincipal(context.Background(), p)
 		before := len(f.calls)
 		checks := []func() error{
@@ -186,15 +186,22 @@ func TestUploadOwnershipAndLegacyTokens(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.V = 1
-	c.UserID = ""
-	c.WorkspaceID = ""
-	legacy, err := s.sign(c)
-	if err != nil {
-		t.Fatal(err)
+	if c.V != 3 || c.UserID != "test-user" {
+		t.Fatal("new upload capability must bind the current user")
 	}
-	if _, err := s.Get(ownerContext(), Access{UploadID: state.UploadID, Token: legacy}); !errors.Is(err, ErrToken) {
-		t.Fatal("legacy upload token accepted")
+	for _, version := range []int{1, 2} {
+		c.V = version
+		legacy, err := s.sign(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		before := len(f.calls)
+		if _, err := s.Get(ownerContext(), Access{UploadID: state.UploadID, Token: legacy}); !errors.Is(err, ErrToken) {
+			t.Fatal("legacy upload token accepted")
+		}
+		if len(f.calls) != before {
+			t.Fatal("legacy token reached S3")
+		}
 	}
 }
 

@@ -15,18 +15,17 @@ import (
 // Signed, not encrypted. Tokens contain no AWS credentials and must never be
 // logged. Scope binds them to the configured bucket/region. V permits migration.
 type claims struct {
-	V           int    `json:"v"`
-	UserID      string `json:"userId"`
-	WorkspaceID string `json:"workspaceId"`
-	Filename    string `json:"filename"`
-	ID          string `json:"id"`
-	Key         string `json:"key"`
-	AWSID       string `json:"awsId"`
-	Scope       string `json:"scope"`
-	Size        int64  `json:"size"`
-	PartSize    int64  `json:"partSize"`
-	Type        string `json:"type"`
-	ExpiresAt   int64  `json:"exp"`
+	V         int    `json:"v"`
+	UserID    string `json:"userId"`
+	Filename  string `json:"filename"`
+	ID        string `json:"id"`
+	Key       string `json:"key"`
+	AWSID     string `json:"awsId"`
+	Scope     string `json:"scope"`
+	Size      int64  `json:"size"`
+	PartSize  int64  `json:"partSize"`
+	Type      string `json:"type"`
+	ExpiresAt int64  `json:"exp"`
 }
 
 func (s *Service) sign(c claims) (string, error) {
@@ -62,8 +61,16 @@ func (s *Service) verify(ctx context.Context, a Access) (claims, error) {
 	if err != nil || json.Unmarshal(data, &c) != nil {
 		return claims{}, ErrToken
 	}
-	if c.V != 2 || c.UserID == "" || c.WorkspaceID == "" || c.Filename == "" || c.ID == "" || c.ID != a.UploadID || c.Scope != s.scope || c.AWSID == "" ||
-		c.Size <= 0 || c.Size > MaxUploadBytes || c.PartSize != PartSizeBytes ||
+	if c.V != 3 ||
+		c.UserID == "" ||
+		c.Filename == "" ||
+		c.ID == "" ||
+		c.ID != a.UploadID ||
+		c.Scope != s.scope ||
+		c.AWSID == "" ||
+		c.Size <= 0 ||
+		c.Size > MaxUploadBytes ||
+		c.PartSize != PartSizeBytes ||
 		!strings.HasPrefix(c.Key, "dev-uploads/"+c.ID+"/source.") ||
 		!time.Unix(c.ExpiresAt, 0).After(s.now()) {
 		return claims{}, ErrToken
@@ -72,7 +79,7 @@ func (s *Service) verify(ctx context.Context, a Access) (claims, error) {
 	if !ok {
 		return claims{}, ErrUnauthenticated
 	}
-	if p.UserID != c.UserID || p.WorkspaceID != c.WorkspaceID {
+	if p.UserID != c.UserID {
 		return claims{}, ErrNotFound
 	}
 	return c, nil

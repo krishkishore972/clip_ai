@@ -105,7 +105,7 @@ func TestStatelessUploadHTTPControlFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		uploadRouter(service).ServeHTTP(w, r.WithContext(auth.WithPrincipal(r.Context(), auth.Principal{UserID: "test-user", WorkspaceID: "test-workspace"})))
+		uploadRouter(service).ServeHTTP(w, r.WithContext(auth.WithPrincipal(r.Context(), auth.Principal{UserID: "test-user"})))
 	}))
 	defer server.Close()
 	client := server.Client()

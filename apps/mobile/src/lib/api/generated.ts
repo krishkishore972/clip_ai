@@ -3,7 +3,6 @@
 
 export type Me = {
   "userId": string;
-  "workspaceId": string;
 };
 
 export type Token = string;
