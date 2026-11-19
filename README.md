@@ -25,16 +25,16 @@ A mobile-first video application with a Go API and a private upload/validation p
 
 ## Repository layout
 
-| Location | Purpose |
-| --- | --- |
-| [Mobile](apps/mobile/) | Expo SDK 58 / React Native client; see its [setup guide](apps/mobile/README.md). |
-| [API](apps/api/) | Go HTTP server, validation worker, dispatcher and migration CLI. |
-| [Web](apps/web/) | Retained Next.js starter on port 3000; not yet a product editor. |
-| [Shared UI](packages/ui/) | Web React components; the web starter currently uses its Button. |
-| [ESLint configuration](packages/eslint-config/) | Shared web/library lint configuration. |
-| [TypeScript configuration](packages/typescript-config/) | Shared TypeScript presets. |
-| [OpenAPI](apps/api/openapi/openapi.yaml) | API contract; generates the [mobile API types](apps/mobile/src/lib/api/generated.ts). |
-| [Repository guidance](AGENTS.md) | Contribution rules, implementation history and safety constraints. |
+| Location                                                | Purpose                                                                               |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| [Mobile](apps/mobile/)                                  | Expo SDK 58 / React Native client; see its [setup guide](apps/mobile/README.md).      |
+| [API](apps/api/)                                        | Go HTTP server, validation worker, dispatcher and migration CLI.                      |
+| [Web](apps/web/)                                        | Retained Next.js starter on port 3000; not yet a product editor.                      |
+| [Shared UI](packages/ui/)                               | Web React components; the web starter currently uses its Button.                      |
+| [ESLint configuration](packages/eslint-config/)         | Shared web/library lint configuration.                                                |
+| [TypeScript configuration](packages/typescript-config/) | Shared TypeScript presets.                                                            |
+| [OpenAPI](apps/api/openapi/openapi.yaml)                | API contract; generates the [mobile API types](apps/mobile/src/lib/api/generated.ts). |
+| [Repository guidance](AGENTS.md)                        | Contribution rules, implementation history and safety constraints.                    |
 
 Product/architecture notes also exist locally under the Git-ignored documentation directory. They are not an additional Next.js application or guaranteed to be present in a fresh clone.
 
