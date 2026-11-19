@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Video AI API",
-    "version": "0.4.0",
+    "version": "0.5.0",
     "description": "Authenticated personal-only mobile API. Clerk session bearer tokens resolve PostgreSQL users; assets belong directly to users. Upload routes remain development-only and require DEV_S3_UPLOAD_ENABLED=true for storage. V3 Upload-Token capabilities additionally bind user ownership; legacy v1/v2 tokens are rejected. Verified completed uploads are persisted with uploaded_unvalidated status. Each create starts a new upload; no create deduplication guarantee. No video bytes are accepted here. Never send authentication headers to S3."
   },
   "security": [{ "ClerkSession": [] }],
@@ -20,6 +20,39 @@
               }
             }
           },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/media/{assetId}/status": {
+      "get": {
+        "operationId": "getMediaValidationStatus",
+        "description": "Read the authenticated user's persisted media validation status. Requires a Clerk bearer token only, not Upload-Token. The asset ID is the uploadId returned by upload completion. Missing, cross-user and NULL-owned legacy assets all return 404. This endpoint is independent of the development S3 upload opt-in and performs no S3, queue, signing, retry or media-processing work. Ready means metadata validation passed, not playback permission or clip availability. Never returns filenames, owner IDs, storage locations, claim data or raw probe metadata.",
+        "parameters": [
+          {
+            "name": "assetId",
+            "in": "path",
+            "required": true,
+            "schema": { "$ref": "#/components/schemas/Token" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Persisted validation state for the owned asset",
+            "headers": {
+              "Cache-Control": {
+                "schema": { "type": "string", "const": "no-store" }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/MediaAssetStatus" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "503": { "$ref": "#/components/responses/Error" },
           "default": { "$ref": "#/components/responses/Error" }
         }
       }
@@ -189,6 +222,49 @@
         "additionalProperties": false,
         "required": ["userId"],
         "properties": { "userId": { "type": "string", "minLength": 1 } }
+      },
+      "MediaValidationState": {
+        "type": "string",
+        "enum": [
+          "uploaded_unvalidated",
+          "validating",
+          "ready",
+          "rejected",
+          "validation_failed"
+        ]
+      },
+      "MediaAssetStatus": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "assetId",
+          "status",
+          "attempts",
+          "failureCode",
+          "updatedAt",
+          "validatedAt"
+        ],
+        "properties": {
+          "assetId": { "$ref": "#/components/schemas/Token" },
+          "status": { "$ref": "#/components/schemas/MediaValidationState" },
+          "attempts": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4,
+            "description": "Durable claimed validation attempts, including interrupted attempts; not dispatcher delivery attempts."
+          },
+          "failureCode": {
+            "type": ["string", "null"],
+            "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
+            "description": "Allowlisted safe validation/retry code, or null. Unknown internal codes are replaced with VALIDATION_FAILED; raw dependency errors are never returned. Ready always has null."
+          },
+          "updatedAt": { "type": "string", "format": "date-time" },
+          "validatedAt": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "Timestamp of successful validation, or null."
+          }
+        }
       },
       "Token": {
         "type": "string",

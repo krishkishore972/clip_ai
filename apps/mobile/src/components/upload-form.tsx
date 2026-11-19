@@ -10,6 +10,7 @@ import {
   Surface,
 } from "@/design-system";
 import { configuredUploadApi } from "@/lib/api/mobile-client";
+import { MediaValidationStatus } from "@/components/media-validation-status";
 import { pickVideo, type SelectedVideo } from "@/lib/uploads/native-video";
 import { uploadVideo, type UploadProgress } from "@/lib/uploads/upload-video";
 
@@ -30,6 +31,7 @@ export function UploadForm() {
   const busy = operation !== null;
   const [progress, setProgress] = useState<UploadProgress | null>(null);
   const [message, setMessage] = useState("");
+  const [completedAssetId, setCompletedAssetId] = useState<string | null>(null);
   const controller = useRef<AbortController | null>(null);
   const locked = useRef(false);
   const mounted = useRef(true);
@@ -54,6 +56,7 @@ export function UploadForm() {
       const video = await pickVideo();
       if (video && mounted.current) {
         setSelected(video);
+        setCompletedAssetId(null);
         setProgress(null);
         setMessage("");
       }
@@ -88,7 +91,7 @@ export function UploadForm() {
         process.env.EXPO_PUBLIC_API_URL ?? "(EXPO_PUBLIC_API_URL is unset)",
       );
       const api = configuredUploadApi(getToken);
-      await uploadVideo({
+      const completed = await uploadVideo({
         api,
         file: selected.metadata,
         source: selected.open(),
@@ -97,10 +100,10 @@ export function UploadForm() {
           if (mounted.current) setProgress(value);
         },
       });
-      if (mounted.current)
-        setMessage(
-          "Stored privately in S3. Video validation and clip analysis are not implemented yet.",
-        );
+      if (mounted.current) {
+        setCompletedAssetId(completed.uploadId);
+        setMessage("Upload complete. Your video is stored privately.");
+      }
     } catch (error) {
       console.error("[upload] failed", error);
       if (mounted.current)
@@ -171,6 +174,7 @@ export function UploadForm() {
           {message}
         </AppText>
       )}
+      {completedAssetId && <MediaValidationStatus assetId={completedAssetId} />}
       {!complete && (
         <ActionButton
           label="Upload video"
@@ -190,7 +194,8 @@ export function UploadForm() {
       <AppText variant="caption" tone="secondary">
         Keep the app in the foreground. Leaving it stops the upload. Failed
         uploads start fresh; resume is not supported. Uploads are linked to your
-        signed-in account. Validation and clip analysis are not available yet.
+        signed-in account. Validation status is checked while this screen is
+        active. Clip analysis and playback are not available yet.
       </AppText>
     </View>
   );

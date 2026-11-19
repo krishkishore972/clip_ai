@@ -1,7 +1,7 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { join } = require("node:path");
-const { createUploadApi } = require(
+const { createUploadApi, AuthenticationRequired } = require(
   join(process.env.UPLOAD_TEST_BUILD_DIR, "api/uploads.js"),
 );
 const { uploadVideo, videoMetadata } = require(
@@ -374,4 +374,163 @@ test("metadata and API configuration checks", () => {
     "https://host?secret=1",
   ])
     assert.throws(() => createUploadApi(base));
+});
+
+const mediaStatus = {
+  assetId: "asset-1",
+  status: "uploaded_unvalidated",
+  attempts: 0,
+  failureCode: null,
+  updatedAt: "2026-11-19T10:00:00Z",
+  validatedAt: null,
+};
+
+test("media status only GETs the encoded API asset with fresh Clerk bearer and isolated headers", async () => {
+  let tokenReads = 0;
+  let requests = 0;
+  const api = createUploadApi(
+    API,
+    async (url, request) => {
+      requests++;
+      assert.equal(url, `${API}/media/asset%3A1/status`);
+      assert.equal(request.method, "GET");
+      assert.equal(request.body, undefined);
+      assert.equal(request.redirect, "error");
+      assert.deepEqual(request.headers, {
+        Accept: "application/json",
+        Authorization: `Bearer token-${tokenReads}`,
+      });
+      return response(200, {
+        ...mediaStatus,
+        assetId: "asset:1",
+        privateProviderField: "discard",
+      });
+    },
+    async () => `token-${++tokenReads}`,
+  );
+  for (let i = 0; i < 2; i++) {
+    assert.deepEqual(
+      await api.mediaStatus("asset:1", new AbortController().signal),
+      { ...mediaStatus, assetId: "asset:1" },
+    );
+  }
+  assert.equal(requests, 2);
+  assert.equal(tokenReads, 2);
+});
+
+test("media status fail-closed parser rejects unknown state, mismatched ID and malformed required fields", async () => {
+  const malformed = [
+    null,
+    [],
+    {},
+    { ...mediaStatus, status: "processing" },
+    { ...mediaStatus, assetId: "other" },
+    ...[-1, 5, 0.5, "1", null].map((attempts) => ({
+      ...mediaStatus,
+      attempts,
+    })),
+    { ...mediaStatus, failureCode: undefined },
+    { ...mediaStatus, failureCode: 1 },
+    { ...mediaStatus, failureCode: "https://secret.invalid" },
+    { ...mediaStatus, failureCode: "lowercase_code" },
+    { ...mediaStatus, failureCode: "A".repeat(65) },
+    { ...mediaStatus, updatedAt: "not a time" },
+    { ...mediaStatus, updatedAt: "2026-02-30T10:00:00Z" },
+    { ...mediaStatus, updatedAt: "2026-11-19T24:00:00Z" },
+    { ...mediaStatus, validatedAt: undefined },
+    { ...mediaStatus, validatedAt: "yesterday" },
+  ];
+  for (const data of malformed) {
+    const api = createUploadApi(
+      API,
+      async () => response(200, data),
+      async () => "token",
+    );
+    await assert.rejects(
+      api.mediaStatus("asset-1", new AbortController().signal),
+      /valid video status/,
+    );
+  }
+  for (const state of [
+    "uploaded_unvalidated",
+    "validating",
+    "ready",
+    "rejected",
+    "validation_failed",
+  ]) {
+    const data = {
+      ...mediaStatus,
+      status: state,
+      attempts: 4,
+      failureCode: "AUDIO_REQUIRED",
+      validatedAt: "2026-11-19T10:00:00.123456789+00:00",
+    };
+    const api = createUploadApi(
+      API,
+      async () => response(200, data),
+      async () => "token",
+    );
+    assert.deepEqual(
+      await api.mediaStatus("asset-1", new AbortController().signal),
+      data,
+    );
+  }
+});
+
+test("media status safely handles 401, 404, 503, invalid JSON and secret-bearing network errors", async () => {
+  for (const [httpStatus, expected] of [
+    [401, /session expired/],
+    [404, /unavailable.*not found/],
+    [503, /temporarily unavailable/],
+  ]) {
+    const api = createUploadApi(
+      API,
+      async () => response(httpStatus, { message: "https://secret.invalid" }),
+      async () => "token",
+    );
+    await assert.rejects(
+      api.mediaStatus("asset-1", new AbortController().signal),
+      (error) => {
+        assert.match(error.message, expected);
+        assert.doesNotMatch(error.message, /secret/);
+        if (httpStatus === 401)
+          assert.ok(error instanceof AuthenticationRequired);
+        return true;
+      },
+    );
+  }
+  for (const fetcher of [
+    async () => new Response("private invalid JSON", { status: 200 }),
+    async () => {
+      throw new Error("https://secret.invalid");
+    },
+  ]) {
+    const api = createUploadApi(API, fetcher, async () => "token");
+    await assert.rejects(
+      api.mediaStatus("asset-1", new AbortController().signal),
+      (error) => {
+        assert.doesNotMatch(error.message, /secret|private/);
+        return true;
+      },
+    );
+  }
+});
+
+test("status read failure after completion never reuploads or aborts the asset", async () => {
+  const f = fixture();
+  const completed = await f.run();
+  const api = createUploadApi(
+    API,
+    async () => response(503, {}),
+    async () => "token",
+  );
+  await assert.rejects(
+    api.mediaStatus(completed.uploadId, new AbortController().signal),
+  );
+  assert.equal(f.progress.at(-1).phase, "complete");
+  assert.equal(f.events.filter((event) => event === "POST /uploads").length, 1);
+  assert.equal(
+    f.events.some((event) => event.startsWith("DELETE")),
+    false,
+  );
 });

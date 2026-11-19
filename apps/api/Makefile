@@ -52,6 +52,10 @@ run: ## Run the API server (make run PORT=9090 overrides API_ADDR)
 dispatcher: ## Run the outbox dispatcher (disabled unless explicitly enabled)
 	$(GO) run $(CMD_DIR)/dispatcher
 
+.PHONY: worker
+worker: ## Run the validation worker (disabled unless explicitly enabled)
+	$(GO) run $(CMD_DIR)/worker
+
 ## ---- quality --------------------------------------------------------
 
 # Migrations are explicit, never part of server startup. DATABASE_URL is

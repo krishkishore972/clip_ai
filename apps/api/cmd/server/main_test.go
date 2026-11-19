@@ -10,7 +10,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/krishkishore972/clip_ai/internal/auth"
 	"github.com/krishkishore972/clip_ai/internal/config"
+	"github.com/krishkishore972/clip_ai/internal/media"
 	"github.com/krishkishore972/clip_ai/internal/upload"
 )
 
@@ -95,12 +97,47 @@ func TestHealthRouteUnchanged(t *testing.T) {
 	}
 }
 
+type serverStatusReader struct{ calls int }
+
+func (s *serverStatusReader) GetStatus(ctx context.Context, id string) (media.AssetStatus, error) {
+	s.calls++
+	if p, ok := auth.FromContext(ctx); !ok || p.UserID != "server-owner" {
+		return media.AssetStatus{}, media.ErrStatusUnauthenticated
+	}
+	return media.AssetStatus{}, media.ErrStatusNotFound
+}
+
+func TestMediaStatusIndependentOfDevelopmentUploads(t *testing.T) {
+	t.Parallel()
+	for _, env := range []string{"development", "test", "production", "staging"} {
+		t.Run(env, func(t *testing.T) {
+			reader := &serverStatusReader{}
+			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			requireAuth := func(next http.Handler) http.Handler {
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					next.ServeHTTP(w, r.WithContext(auth.WithPrincipal(r.Context(), auth.Principal{UserID: "server-owner"})))
+				})
+			}
+			w := httptest.NewRecorder()
+			newHandlerWithStatus(logger, env, nil, reader, requireAuth).ServeHTTP(w, httptest.NewRequest("GET", "/media/asset/status", nil))
+			if w.Code != 404 || reader.calls != 1 || !strings.Contains(w.Body.String(), "media_not_found") || w.Header().Get("Cache-Control") != "no-store" {
+				t.Fatalf("status route unavailable without uploads: %d %s", w.Code, w.Body.String())
+			}
+			w = httptest.NewRecorder()
+			newHandlerWithStatus(logger, env, nil, reader).ServeHTTP(w, httptest.NewRequest("GET", "/media/asset/status", nil))
+			if w.Code != 401 || reader.calls != 1 {
+				t.Fatal("status route did not fail closed")
+			}
+		})
+	}
+}
+
 func TestAllPrivateRoutesFailClosed(t *testing.T) {
 	t.Parallel()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	h := newHandler(logger, "development", nil)
 	for _, endpoint := range []struct{ method, path string }{
-		{"GET", "/me"}, {"POST", "/uploads"}, {"GET", "/uploads/a"}, {"POST", "/uploads/a/parts/sign"}, {"POST", "/uploads/a/complete"}, {"DELETE", "/uploads/a"},
+		{"GET", "/me"}, {"GET", "/media/asset/status"}, {"POST", "/uploads"}, {"GET", "/uploads/a"}, {"POST", "/uploads/a/parts/sign"}, {"POST", "/uploads/a/complete"}, {"DELETE", "/uploads/a"},
 	} {
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, httptest.NewRequest(endpoint.method, endpoint.path, nil))

@@ -5,6 +5,17 @@ export type Me = {
   "userId": string;
 };
 
+export type MediaValidationState = "uploaded_unvalidated" | "validating" | "ready" | "rejected" | "validation_failed";
+
+export type MediaAssetStatus = {
+  "assetId": Token;
+  "status": MediaValidationState;
+  "attempts": number;
+  "failureCode": string | null;
+  "updatedAt": string;
+  "validatedAt": string | null;
+};
+
 export type Token = string;
 
 export type PartNumber = number;

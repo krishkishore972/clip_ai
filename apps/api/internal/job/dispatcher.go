@@ -106,12 +106,11 @@ func (d *Dispatcher) DispatchOne(ctx context.Context) (DispatchResult, error) {
 
 	result := DispatchResult{EventID: eventID, Attempts: attempts + 1}
 	enqueueCtx, stopEnqueue := context.WithTimeout(txCtx, d.options.EnqueueTimeout)
-	_, enqueueErr := d.client.EnqueueContext(
-		enqueueCtx,
-		asynq.NewTask(taskType, payload),
-		asynq.Queue(queue),
-		asynq.TaskID(eventID),
-	)
+	opts := []asynq.Option{asynq.Queue(queue), asynq.TaskID(eventID)}
+	if taskType == ValidationTaskType {
+		opts = append(opts, asynq.MaxRetry(ValidationMaxRetry), asynq.Timeout(20*time.Minute))
+	}
+	_, enqueueErr := d.client.EnqueueContext(enqueueCtx, asynq.NewTask(taskType, payload), opts...)
 	enqueueDeadline := enqueueCtx.Err()
 	stopEnqueue()
 	if txCtx.Err() != nil {

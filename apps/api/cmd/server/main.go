@@ -21,6 +21,7 @@ import (
 	"github.com/krishkishore972/clip_ai/internal/db"
 	"github.com/krishkishore972/clip_ai/internal/handler"
 	"github.com/krishkishore972/clip_ai/internal/httpserver"
+	"github.com/krishkishore972/clip_ai/internal/media"
 	"github.com/krishkishore972/clip_ai/internal/storage"
 	"github.com/krishkishore972/clip_ai/internal/upload"
 )
@@ -69,9 +70,9 @@ func serve(cfg config.Config, logger *slog.Logger) error {
 		return fmt.Errorf("initialize development uploads: %w", err)
 	}
 	if uploads != nil {
-		logger.Warn("development S3 uploads enabled; media validation is not implemented")
+		logger.Warn("development S3 uploads enabled; validation requires the separately enabled worker")
 	}
-	srv := httpserver.NewServer(cfg, newHandler(logger, cfg.Env, uploads, requireAuth))
+	srv := httpserver.NewServer(cfg, newHandlerWithStatus(logger, cfg.Env, uploads, media.SQLStatusReader{DB: database}, requireAuth))
 
 	return run(srv, cfg.ShutdownTimeout, logger)
 }
@@ -95,9 +96,14 @@ func developmentUploads(ctx context.Context, env string, assets upload.AssetReco
 // newHandler builds the route table and installs middleware. Add routes here
 // as features land; middleware order is outermost-first.
 func newHandler(logger *slog.Logger, env string, uploads handler.MultipartUploadService, authMiddleware ...func(http.Handler) http.Handler) http.Handler {
+	return newHandlerWithStatus(logger, env, uploads, nil, authMiddleware...)
+}
+
+func newHandlerWithStatus(logger *slog.Logger, env string, uploads handler.MultipartUploadService, statuses handler.MediaStatusReader, authMiddleware ...func(http.Handler) http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	protected := http.NewServeMux()
 	protected.HandleFunc("GET /me", auth.Me)
+	handler.NewMediaStatusHandler(statuses, logger).Register(protected)
 
 	mux.HandleFunc("GET /healthz", health)
 	// Keep uploads development-only until media validation and release hardening
@@ -115,6 +121,7 @@ func newHandler(logger *slog.Logger, env string, uploads handler.MultipartUpload
 		private = authMiddleware[0](protected)
 	}
 	mux.Handle("/me", private)
+	mux.Handle("/media/", private)
 	if env == "development" {
 		mux.Handle("/uploads", private)
 		mux.Handle("/uploads/", private)
