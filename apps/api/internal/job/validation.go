@@ -31,6 +31,8 @@ type ValidationOptions struct {
 	DownloadTimeout time.Duration
 	ProbeTimeout    time.Duration
 	TaskTimeout     time.Duration
+	// Probe defaults to media.ProbeFile when nil. Set before constructing the handler.
+	Probe func(context.Context, string, time.Duration) (media.Metadata, error)
 }
 
 type ValidationHandler struct {
@@ -38,7 +40,6 @@ type ValidationHandler struct {
 	downloader    VideoDownloader
 	options       ValidationOptions
 	logger        *slog.Logger
-	probe         func(context.Context, string, time.Duration) (media.Metadata, error)
 	inspector     ValidationTaskInspector
 	archiveCursor string
 	mu            sync.Mutex
@@ -58,13 +59,21 @@ func NewValidationHandler(store ValidationStore, downloader VideoDownloader, opt
 		return nil, err
 	}
 	options.TempDir = root
+	if options.Probe == nil {
+		options.Probe = media.ProbeFile
+	}
 	return &ValidationHandler{
-		store: store, downloader: downloader, options: options, logger: logger, probe: media.ProbeFile,
+		store: store, downloader: downloader, options: options, logger: logger,
 		serial: make(chan struct{}, 1),
 	}, nil
 }
 
 var validationIDPattern = regexp.MustCompile(`^[A-Za-z0-9_.:-]{1,128}$`)
+
+// ValidValidationAssetID reports whether an opaque validation asset ID is safe.
+func ValidValidationAssetID(id string) bool {
+	return validationIDPattern.MatchString(id)
+}
 
 func validationAssetID(task *asynq.Task) (string, error) {
 	if task == nil || task.Type() != ValidationTaskType || len(task.Payload()) > 1024 {
@@ -75,7 +84,7 @@ func validationAssetID(task *asynq.Task) (string, error) {
 	}
 	decoder := json.NewDecoder(bytes.NewReader(task.Payload()))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&input); err != nil || !validationIDPattern.MatchString(input.AssetID) {
+	if err := decoder.Decode(&input); err != nil || !ValidValidationAssetID(input.AssetID) {
 		return "", errors.New("invalid validation payload")
 	}
 	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
@@ -147,7 +156,7 @@ func (h *ValidationHandler) ProcessTask(parent context.Context, task *asynq.Task
 			operationErr, outcome.Code = tempErr, "TEMP_STORAGE_UNAVAILABLE"
 			break
 		}
-		defer h.removeAttemptDirectory(directory)
+		defer h.RemoveAttemptDirectory(directory)
 		path := filepath.Join(directory, "source")
 		downloadCtx, stopDownload := context.WithTimeout(workCtx, h.options.DownloadTimeout)
 		downloadErr := h.downloader.Download(downloadCtx, asset.Key, path, asset.SizeBytes)
@@ -165,7 +174,7 @@ func (h *ValidationHandler) ProcessTask(parent context.Context, task *asynq.Task
 			}
 			break
 		}
-		metadata, probeErr := h.probe(workCtx, path, h.options.ProbeTimeout)
+		metadata, probeErr := h.options.Probe(workCtx, path, h.options.ProbeTimeout)
 		if probeErr != nil {
 			var rejection *media.Rejection
 			if errors.As(probeErr, &rejection) && validationCodePattern.MatchString(rejection.Code) {

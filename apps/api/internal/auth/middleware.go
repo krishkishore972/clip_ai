@@ -29,10 +29,13 @@ func New(cfg config.Auth, users Users, logger *slog.Logger) func(http.Handler) h
 	client := jwks.NewClient(&clerk.ClientConfig{BackendConfig: clerk.BackendConfig{
 		Key: clerk.String(cfg.SecretKey), HTTPClient: &http.Client{Timeout: 5 * time.Second},
 	}})
-	return middleware(cfg, users, client, logger)
+	return NewWithJWKSClient(cfg, users, client, logger)
 }
 
-func middleware(cfg config.Auth, users Users, client *jwks.Client, logger *slog.Logger) func(http.Handler) http.Handler {
+// NewWithJWKSClient constructs the bearer authentication middleware with an
+// explicitly configured Clerk signing-key client. Signature, issuer, audience,
+// session, and authorized-party validation are identical to New.
+func NewWithJWKSClient(cfg config.Auth, users Users, client *jwks.Client, logger *slog.Logger) func(http.Handler) http.Handler {
 	fail := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("WWW-Authenticate", "Bearer")

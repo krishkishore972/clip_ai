@@ -25,16 +25,18 @@ var (
 	ErrDownloadDestination  = errors.New("storage: download destination unavailable")
 )
 
-const maxDownloadBytes int64 = 2_000_000_000
+// MaxDownloadBytes bounds original-object downloads.
+const MaxDownloadBytes int64 = 2_000_000_000
 
-type objectGetter interface {
+// ObjectGetter is the SDK streaming-read port used by Downloader.
+type ObjectGetter interface {
 	GetObject(context.Context, *s3.GetObjectInput, ...func(*s3.Options)) (*s3.GetObjectOutput, error)
 }
 
 // Downloader reads immutable originals from one trusted, configured bucket.
 // It never changes or deletes the source object.
 type Downloader struct {
-	client objectGetter
+	client ObjectGetter
 	bucket string
 }
 
@@ -52,7 +54,16 @@ func NewDownloader(ctx context.Context, region, bucket string) (*Downloader, err
 	if err != nil {
 		return nil, downloadError(ctx, err)
 	}
-	return &Downloader{client: s3.NewFromConfig(cfg), bucket: bucket}, nil
+	return NewDownloaderWithClient(bucket, s3.NewFromConfig(cfg))
+}
+
+// NewDownloaderWithClient accepts a caller-configured SDK streaming client.
+// Construction performs no object or credential requests.
+func NewDownloaderWithClient(bucket string, client ObjectGetter) (*Downloader, error) {
+	if strings.TrimSpace(bucket) == "" || strings.ContainsAny(bucket, "/\\ \t\r\n") || client == nil {
+		return nil, ErrDownloadInvalidInput
+	}
+	return &Downloader{client: client, bucket: bucket}, nil
 }
 
 // Download streams at most expectedBytes+1 bytes to a new exclusive 0600 file.
@@ -62,7 +73,7 @@ func NewDownloader(ctx context.Context, region, bucket string) (*Downloader, err
 // files are removed only if the path still identifies the file we created.
 func (d *Downloader) Download(ctx context.Context, key, destination string, expectedBytes int64) (result error) {
 	if d == nil || d.client == nil || d.bucket == "" || key == "" || destination == "" ||
-		expectedBytes <= 0 || expectedBytes > maxDownloadBytes {
+		expectedBytes <= 0 || expectedBytes > MaxDownloadBytes {
 		return ErrDownloadInvalidInput
 	}
 	if err := ctx.Err(); err != nil {

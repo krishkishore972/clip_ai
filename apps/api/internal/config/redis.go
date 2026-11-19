@@ -24,10 +24,12 @@ func LoadRedis() (Redis, error) {
 	if err != nil {
 		return Redis{}, err
 	}
-	return parseRedis(raw)
+	return ParseRedis(raw)
 }
 
-func parseRedis(raw string) (Redis, error) {
+// ParseRedis validates a Redis URL and constructs bounded connection options
+// without connecting. Errors never include URL credentials.
+func ParseRedis(raw string) (Redis, error) {
 	// Do not wrap URL/parser errors: they can include credentials.
 	invalid := errors.New("config: REDIS_URL must be redis:// or rediss://host:port with an optional non-negative database path; query parameters and fragments are unsupported")
 	u, err := url.Parse(raw)

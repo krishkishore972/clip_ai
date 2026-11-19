@@ -46,7 +46,9 @@ func (h *ValidationHandler) ownedAttemptPath(path string) bool {
 		filepath.Clean(path) == path
 }
 
-func (h *ValidationHandler) removeAttemptDirectory(path string) {
+// RemoveAttemptDirectory removes only a direct, named attempt under the private root.
+// Paths outside that root are refused without touching their contents.
+func (h *ValidationHandler) RemoveAttemptDirectory(path string) {
 	if !h.ownedAttemptPath(path) {
 		h.logger.Error("validation temporary cleanup refused", "code", "TEMP_PATH_INVALID")
 		return
@@ -58,7 +60,8 @@ func (h *ValidationHandler) removeAttemptDirectory(path string) {
 	}
 }
 
-func (h *ValidationHandler) scavengeAttempts(ctx context.Context, now time.Time) error {
+// ScavengeAttempts removes only expired owned attempts, leaving active and unrelated paths.
+func (h *ValidationHandler) ScavengeAttempts(ctx context.Context, now time.Time) error {
 	root, err := os.Open(h.options.TempDir)
 	if err != nil {
 		return errors.New("validation: temporary cleanup unavailable")
@@ -82,7 +85,7 @@ func (h *ValidationHandler) scavengeAttempts(ctx context.Context, now time.Time)
 			if !h.ownedAttemptPath(path) || strings.Contains(entry.Name(), string(filepath.Separator)) {
 				continue
 			}
-			h.removeAttemptDirectory(path)
+			h.RemoveAttemptDirectory(path)
 		}
 		if errors.Is(readErr, io.EOF) {
 			return nil
@@ -114,7 +117,7 @@ func (h *ValidationHandler) RunRecovery(ctx context.Context) {
 			h.logger.Info("interrupted validations recovered", "count", count)
 		}
 		cleanupCtx, stopCleanup := context.WithTimeout(ctx, 10*time.Second)
-		if err := h.scavengeAttempts(cleanupCtx, time.Now()); err != nil && ctx.Err() == nil {
+		if err := h.ScavengeAttempts(cleanupCtx, time.Now()); err != nil && ctx.Err() == nil {
 			h.logger.Warn("validation temporary cleanup deferred", "code", "TEMP_CLEANUP_FAILED")
 		}
 		stopCleanup()

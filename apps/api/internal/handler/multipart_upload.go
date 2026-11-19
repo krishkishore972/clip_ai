@@ -14,11 +14,7 @@ import (
 	"github.com/krishkishore972/clip_ai/internal/upload"
 )
 
-const (
-	maxUploadBytes = upload.MaxUploadBytes
-	maxPartNumber  = 10_000
-	maxSignBatch   = upload.MaxSignBatch
-)
+const maxPartNumber = 10_000
 
 // Service errors are safe classifications, not provider error messages.
 var (
@@ -96,7 +92,7 @@ func (h *MultipartUploadHandler) Create(w http.ResponseWriter, r *http.Request) 
 		h.fail(w, r, http.StatusBadRequest, "invalid_upload", "filename and a positive sizeBytes are required")
 		return
 	}
-	if in.SizeBytes > maxUploadBytes {
+	if in.SizeBytes > upload.MaxUploadBytes {
 		h.fail(w, r, http.StatusRequestEntityTooLarge, "file_too_large", "file exceeds the 2000000000 byte limit")
 		return
 	}
@@ -124,7 +120,7 @@ func (h *MultipartUploadHandler) SignParts(w http.ResponseWriter, r *http.Reques
 	if !ok {
 		return
 	}
-	if len(in.PartNumbers) == 0 || len(in.PartNumbers) > maxSignBatch || !validPartNumbers(in.PartNumbers) {
+	if len(in.PartNumbers) == 0 || len(in.PartNumbers) > upload.MaxSignBatch || !validPartNumbers(in.PartNumbers) {
 		h.fail(w, r, http.StatusBadRequest, "invalid_parts", "provide 1 to 100 unique part numbers between 1 and 10000")
 		return
 	}

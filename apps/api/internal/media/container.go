@@ -38,14 +38,15 @@ func identifyContainer(path string, data *ffprobe.ProbeData) (string, error) {
 		if err != nil {
 			return "", ErrLocalFile
 		}
-		if webmHeader(header) {
+		if IsWebMHeader(header) {
 			return "webm", nil
 		}
 	}
 	return "", reject("UNSUPPORTED_MEDIA")
 }
 
-func webmHeader(data []byte) bool {
+// IsWebMHeader checks the EBML header DocType without trusting a file extension.
+func IsWebMHeader(data []byte) bool {
 	if len(data) < 5 || !bytes.Equal(data[:4], []byte{0x1a, 0x45, 0xdf, 0xa3}) {
 		return false
 	}

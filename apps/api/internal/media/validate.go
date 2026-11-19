@@ -48,7 +48,8 @@ type Metadata struct {
 	Audio      []AudioStream
 }
 
-func validate(data *ffprobe.ProbeData, container string) (Metadata, error) {
+// ValidateProbeData applies media policy to probe metadata for an identified container.
+func ValidateProbeData(data *ffprobe.ProbeData, container string) (Metadata, error) {
 	var out Metadata
 	if data == nil || data.Format == nil {
 		return out, reject("INVALID_MEDIA_METADATA")
@@ -98,7 +99,7 @@ func validate(data *ffprobe.ProbeData, container string) (Metadata, error) {
 			if rate == "" || rate == "0/0" || rate == "N/A" {
 				rate = stream.RFrameRate
 			}
-			fps, ok := frameRate(rate)
+			fps, ok := ParseFrameRate(rate)
 			if !ok {
 				return Metadata{}, reject("INVALID_MEDIA_METADATA")
 			}
@@ -147,7 +148,8 @@ func validate(data *ffprobe.ProbeData, container string) (Metadata, error) {
 
 func validDuration(d float64) bool { return d > 0 && !math.IsNaN(d) && !math.IsInf(d, 0) }
 
-func frameRate(raw string) (Rational, bool) {
+// ParseFrameRate parses and reduces a positive, bounded rational frame rate.
+func ParseFrameRate(raw string) (Rational, bool) {
 	num, den, ok := strings.Cut(raw, "/")
 	if !ok {
 		return Rational{}, false

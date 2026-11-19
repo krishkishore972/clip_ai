@@ -402,6 +402,7 @@ Rules:
 ### Go (`apps/api`)
 
 - Standard layout: `cmd/` entrypoints, `internal/` packages, `migrations/`.
+- [V, user-approved test layout 2026-11-19] All Go `*_test.go` files live under [apps/api/tests](apps/api/tests/README.md), grouped into external test packages. Command composition is importable under [internal/app](apps/api/internal/app/), with thin executable entrypoints. Do not reintroduce colocated tests, test-only production bridges, linker tricks, overlays or copied implementation logic. Preserve assertions using meaningful domain APIs and dependency injection with unchanged secure defaults. Standard `go test ./...` remains valid; use `-coverpkg=./internal/...,./cmd/...,./migrations` for production coverage. Migration tests now run from `./tests/migrations`; application-data and isolation safeguards still apply. See ADR-0010.
 - No `pkg/` grab-bag. If a package is not importable by others, it belongs in `internal/`.
 - Context first: `func (s *Service) Do(ctx context.Context, in Input) (Out, error)`.
 - Wrap errors with `%w`; return typed/sentinel errors at boundaries; map to HTTP once, in the handler layer.

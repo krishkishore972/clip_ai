@@ -1,0 +1,149 @@
+package server_test
+
+import (
+	"context"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/krishkishore972/clip_ai/internal/app/server"
+	"github.com/krishkishore972/clip_ai/internal/auth"
+	"github.com/krishkishore972/clip_ai/internal/config"
+	"github.com/krishkishore972/clip_ai/internal/media"
+	"github.com/krishkishore972/clip_ai/internal/upload"
+)
+
+func TestServeRejectsDatabaseFailureWithoutLeakingDSN(t *testing.T) {
+	t.Parallel()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	err := server.Serve(config.Config{DatabaseURL: "postgres://secret-user:secret-password@localhost:invalid-port/database"}, logger, "test")
+	if err == nil {
+		t.Fatal("startup accepted an invalid database connection")
+	}
+	if !strings.Contains(err.Error(), "database connection failed") || strings.Contains(err.Error(), "secret-") {
+		t.Fatal("startup error must explain connection failure without exposing the DSN")
+	}
+}
+
+func TestUploadRoutesDevelopmentOnly(t *testing.T) {
+	t.Parallel()
+	for _, env := range []string{"development", "test", "production", "staging", ""} {
+		t.Run(env, func(t *testing.T) {
+			t.Parallel()
+			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			h := server.NewHandler(logger, env, nil, nil)
+			r := httptest.NewRequest(http.MethodPost, "/uploads", strings.NewReader(
+				`{"filename":"sample.mp4","sizeBytes":1024,"contentType":"video/mp4"}`))
+			r.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, r)
+			want := http.StatusNotFound
+			if env == "development" {
+				want = http.StatusUnauthorized
+				if !strings.Contains(w.Body.String(), `"code":"UNAUTHENTICATED"`) {
+					t.Fatalf("unexpected body: %s", w.Body.String())
+				}
+			}
+			if w.Code != want {
+				t.Fatalf("status=%d, want %d", w.Code, want)
+			}
+			if w.Header().Get("X-Request-Id") == "" {
+				t.Fatal("missing middleware request ID")
+			}
+		})
+	}
+}
+
+func TestDevelopmentUploadsStartup(t *testing.T) {
+	t.Setenv("DEV_S3_UPLOAD_ENABLED", "false")
+	if service, err := server.NewDevelopmentUploads(context.Background(), "development", upload.SQLAssets{}); err != nil || service != nil {
+		t.Fatal("disabled startup attempted upload initialization")
+	}
+	t.Setenv("DEV_S3_UPLOAD_ENABLED", "true")
+	if _, err := server.NewDevelopmentUploads(context.Background(), "production", upload.SQLAssets{}); err == nil {
+		t.Fatal("production enabled unguarded uploads")
+	}
+	t.Setenv("AWS_REGION", "")
+	if _, err := server.NewDevelopmentUploads(context.Background(), "development", upload.SQLAssets{}); err == nil {
+		t.Fatal("enabled startup accepted missing configuration")
+	}
+	// Construct the real adapter with isolated fake credentials. No upload request
+	// is sent: this verifies composition, not connectivity to AWS.
+	for key, value := range map[string]string{
+		"AWS_REGION": "ap-south-1", "S3_BUCKET": "private-example-bucket", "S3_PRESIGN_TTL": "15m",
+		"UPLOAD_TOKEN_SECRET": strings.Repeat("test-only-", 8), "UPLOAD_TOKEN_TTL": "24h",
+		"AWS_ACCESS_KEY_ID": "TESTKEY", "AWS_SECRET_ACCESS_KEY": "not-real", "AWS_SESSION_TOKEN": "",
+		"AWS_PROFILE": "", "AWS_DEFAULT_PROFILE": "", "AWS_EC2_METADATA_DISABLED": "true",
+		"AWS_CONFIG_FILE":             filepath.Join(t.TempDir(), "missing-config"),
+		"AWS_SHARED_CREDENTIALS_FILE": filepath.Join(t.TempDir(), "missing-credentials"),
+	} {
+		t.Setenv(key, value)
+	}
+	if service, err := server.NewDevelopmentUploads(context.Background(), "development", upload.SQLAssets{}); err != nil || service == nil {
+		t.Fatalf("SDK/service composition failed: %v", err)
+	}
+}
+
+func TestHealthRouteUnchanged(t *testing.T) {
+	t.Parallel()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	w := httptest.NewRecorder()
+	server.NewHandler(logger, "production", nil, nil).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if w.Code != http.StatusNoContent || w.Body.Len() != 0 {
+		t.Fatalf("status=%d body=%q", w.Code, w.Body.String())
+	}
+}
+
+type serverStatusReader struct{ calls int }
+
+func (s *serverStatusReader) GetStatus(ctx context.Context, id string) (media.AssetStatus, error) {
+	s.calls++
+	if p, ok := auth.FromContext(ctx); !ok || p.UserID != "server-owner" {
+		return media.AssetStatus{}, media.ErrStatusUnauthenticated
+	}
+	return media.AssetStatus{}, media.ErrStatusNotFound
+}
+
+func TestMediaStatusIndependentOfDevelopmentUploads(t *testing.T) {
+	t.Parallel()
+	for _, env := range []string{"development", "test", "production", "staging"} {
+		t.Run(env, func(t *testing.T) {
+			reader := &serverStatusReader{}
+			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			requireAuth := func(next http.Handler) http.Handler {
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					next.ServeHTTP(w, r.WithContext(auth.WithPrincipal(r.Context(), auth.Principal{UserID: "server-owner"})))
+				})
+			}
+			w := httptest.NewRecorder()
+			server.NewHandler(logger, env, nil, reader, requireAuth).ServeHTTP(w, httptest.NewRequest("GET", "/media/asset/status", nil))
+			if w.Code != 404 || reader.calls != 1 || !strings.Contains(w.Body.String(), "media_not_found") || w.Header().Get("Cache-Control") != "no-store" {
+				t.Fatalf("status route unavailable without uploads: %d %s", w.Code, w.Body.String())
+			}
+			w = httptest.NewRecorder()
+			server.NewHandler(logger, env, nil, reader).ServeHTTP(w, httptest.NewRequest("GET", "/media/asset/status", nil))
+			if w.Code != 401 || reader.calls != 1 {
+				t.Fatal("status route did not fail closed")
+			}
+		})
+	}
+}
+
+func TestAllPrivateRoutesFailClosed(t *testing.T) {
+	t.Parallel()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	h := server.NewHandler(logger, "development", nil, nil)
+	for _, endpoint := range []struct{ method, path string }{
+		{"GET", "/me"}, {"GET", "/media/asset/status"}, {"POST", "/uploads"}, {"GET", "/uploads/a"}, {"POST", "/uploads/a/parts/sign"}, {"POST", "/uploads/a/complete"}, {"DELETE", "/uploads/a"},
+	} {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest(endpoint.method, endpoint.path, nil))
+		if w.Code != http.StatusUnauthorized || !strings.Contains(w.Body.String(), "UNAUTHENTICATED") || w.Header().Get("Cache-Control") != "no-store" {
+			t.Fatalf("unprotected endpoint %s %s", endpoint.method, endpoint.path)
+		}
+	}
+}

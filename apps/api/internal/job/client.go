@@ -21,6 +21,12 @@ func NewClient(cfg config.Redis) *asynq.Client {
 type contextRedisOptions struct{ asynq.RedisClientOpt }
 
 func (opt contextRedisOptions) MakeRedisClient() interface{} {
+	return NewProducerRedisClient(opt.RedisClientOpt)
+}
+
+// NewProducerRedisClient constructs the deadline-aware, retry-free transport used
+// by producers and bounded inspectors. The caller owns and must close the client.
+func NewProducerRedisClient(opt asynq.RedisClientOpt) *redis.Client {
 	return redis.NewClient(&redis.Options{
 		Network:               opt.Network,
 		Addr:                  opt.Addr,

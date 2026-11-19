@@ -82,7 +82,7 @@ func ProbeFile(ctx context.Context, path string, timeout time.Duration) (Metadat
 	if err != nil {
 		return Metadata{}, err
 	}
-	metadata, err := validate(data, container)
+	metadata, err := ValidateProbeData(data, container)
 	if err != nil {
 		return Metadata{}, err
 	}

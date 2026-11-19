@@ -145,7 +145,7 @@ func (d *Dispatcher) DispatchOne(ctx context.Context) (DispatchResult, error) {
 				last_error_code = $3
 			WHERE id = $1
 		`
-		delay := retryDelay(result.Attempts, d.options.RetryBase, d.options.RetryMax)
+		delay := DispatchRetryDelay(result.Attempts, d.options.RetryBase, d.options.RetryMax)
 		if _, err := tx.ExecContext(
 			txCtx,
 			retryQuery,
@@ -234,7 +234,8 @@ func outboxError(parent, transaction context.Context) error {
 	return ErrOutboxDatabase
 }
 
-func retryDelay(attempt int, base, ceiling time.Duration) time.Duration {
+// DispatchRetryDelay returns equal-jitter capped exponential dispatch backoff.
+func DispatchRetryDelay(attempt int, base, ceiling time.Duration) time.Duration {
 	delay := base
 	for i := 1; i < attempt && delay < ceiling; i++ {
 		if delay > ceiling/2 {

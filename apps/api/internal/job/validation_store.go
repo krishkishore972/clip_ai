@@ -26,7 +26,7 @@ var (
 	ErrValidationDatabase  = errors.New("validation database operation failed")
 	ErrValidationBusy      = errors.New("validation claim is busy")
 	ErrValidationStale     = errors.New("validation claim is stale")
-	errValidationArguments = errors.New("invalid validation store arguments")
+	ErrValidationArguments = errors.New("invalid validation store arguments")
 	validationCodePattern  = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,63}$`)
 )
 
@@ -53,7 +53,7 @@ type SQLValidationStore struct{ DB *sql.DB }
 // downloads and probing must happen after this transaction has committed.
 func (s SQLValidationStore) Claim(ctx context.Context, id, token string, lease time.Duration) (ValidationAsset, error) {
 	if strings.TrimSpace(id) == "" || strings.TrimSpace(token) == "" || lease < time.Microsecond {
-		return ValidationAsset{}, errValidationArguments
+		return ValidationAsset{}, ErrValidationArguments
 	}
 	if s.DB == nil {
 		return ValidationAsset{}, ErrValidationDatabase
@@ -146,7 +146,7 @@ func (s SQLValidationStore) Claim(ctx context.Context, id, token string, lease t
 
 func (s SQLValidationStore) Finish(ctx context.Context, asset ValidationAsset, outcome ValidationOutcome) error {
 	if strings.TrimSpace(asset.ID) == "" || strings.TrimSpace(asset.Token) == "" {
-		return errValidationArguments
+		return ErrValidationArguments
 	}
 	var metadata []byte
 	var duration, width, height, num, den any
@@ -155,12 +155,12 @@ func (s SQLValidationStore) Finish(ctx context.Context, asset ValidationAsset, o
 	if outcome.Status == "ready" {
 		m := outcome.Metadata
 		if outcome.Code != "" || !validStoredMetadata(m) {
-			return errValidationArguments
+			return ErrValidationArguments
 		}
 		var err error
 		metadata, err = json.Marshal(m)
 		if err != nil {
-			return errValidationArguments
+			return ErrValidationArguments
 		}
 		v := m.Video[0]
 		duration, width, height, num, den = m.DurationMs, v.Width, v.Height, v.FPS.Num, v.FPS.Den
@@ -169,10 +169,10 @@ func (s SQLValidationStore) Finish(ctx context.Context, asset ValidationAsset, o
 		switch outcome.Status {
 		case "uploaded_unvalidated", "rejected", "validation_failed":
 		default:
-			return errValidationArguments
+			return ErrValidationArguments
 		}
 		if outcome.Metadata != nil || !validationCodePattern.MatchString(outcome.Code) {
-			return errValidationArguments
+			return ErrValidationArguments
 		}
 		code = outcome.Code
 	}
@@ -298,7 +298,7 @@ func (s SQLValidationStore) Finish(ctx context.Context, asset ValidationAsset, o
 // their old tasks. The state change and identifier-only event commit together.
 func (s SQLValidationStore) Recover(ctx context.Context, limit int) (int, error) {
 	if limit <= 0 {
-		return 0, errValidationArguments
+		return 0, ErrValidationArguments
 	}
 	limit = min(limit, 100)
 	if s.DB == nil {

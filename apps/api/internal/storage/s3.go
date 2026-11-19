@@ -35,7 +35,7 @@ func classify(err, missing error, codes ...string) error {
 	return err
 }
 
-// Small SDK interfaces keep tests offline and avoid exposing AWS types to callers.
+// Small SDK ports isolate provider operations from the domain-facing adapter.
 type multipartCreator interface {
 	CreateMultipartUpload(context.Context, *s3.CreateMultipartUploadInput, ...func(*s3.Options)) (*s3.CreateMultipartUploadOutput, error)
 }
@@ -50,13 +50,15 @@ type objectInspector interface {
 	HeadObject(context.Context, *s3.HeadObjectInput, ...func(*s3.Options)) (*s3.HeadObjectOutput, error)
 }
 
-type s3API interface {
+// S3API is the SDK multipart and metadata port used by the adapter.
+type S3API interface {
 	multipartCreator
 	multipartManager
 	objectInspector
 }
 
-type partPresigner interface {
+// PartPresigner signs bounded upload-part requests.
+type PartPresigner interface {
 	PresignUploadPart(context.Context, *s3.UploadPartInput, ...func(*s3.PresignOptions)) (*v4.PresignedHTTPRequest, error)
 }
 
@@ -83,8 +85,8 @@ type ObjectInfo struct {
 }
 
 type S3 struct {
-	client     s3API
-	presigner  partPresigner
+	client     S3API
+	presigner  PartPresigner
 	bucket     string
 	presignTTL time.Duration
 }
@@ -102,7 +104,17 @@ func NewS3(ctx context.Context, cfg config.S3) (*S3, error) {
 		return nil, fmt.Errorf("storage: load AWS configuration: %w", err)
 	}
 	client := s3.NewFromConfig(awsCfg)
-	return &S3{client: client, presigner: s3.NewPresignClient(client), bucket: cfg.Bucket, presignTTL: cfg.PresignTTL}, nil
+	return NewS3WithClients(cfg, client, s3.NewPresignClient(client))
+}
+
+// NewS3WithClients accepts caller-configured SDK clients, for example for custom
+// transports, credentials, or S3-compatible endpoints. It performs no I/O.
+func NewS3WithClients(cfg config.S3, client S3API, presigner PartPresigner) (*S3, error) {
+	if strings.TrimSpace(cfg.Region) == "" || strings.TrimSpace(cfg.Bucket) == "" ||
+		strings.ContainsAny(cfg.Bucket, "/\\ \t\r\n") || cfg.PresignTTL < time.Second || cfg.PresignTTL > 15*time.Minute || client == nil || presigner == nil {
+		return nil, errors.New("storage: valid configuration, SDK client and presigner are required")
+	}
+	return &S3{client: client, presigner: presigner, bucket: cfg.Bucket, presignTTL: cfg.PresignTTL}, nil
 }
 
 // Begin initiates a real multipart upload. The application must retain the AWS

@@ -38,6 +38,11 @@ type Store interface {
 }
 
 type Config struct {
+	// Now and Random optionally supply the clock and cryptographic entropy source.
+	// Nil values use time.Now and crypto/rand.Reader. Injected sources must be safe
+	// for the caller's concurrency and Random must be cryptographically secure.
+	Now           func() time.Time
+	Random        io.Reader
 	Assets        AssetRecorder
 	Bucket        string
 	SigningSecret []byte
@@ -64,8 +69,14 @@ func New(store Store, cfg Config) (*Service, error) {
 		cfg.PresignTTL < time.Second || cfg.PresignTTL > 15*time.Minute {
 		return nil, errors.New("upload: storage, asset recorder, bucket, signing secret (32+ bytes), scope, token TTL (1m–24h), and signing TTL (1s–15m) are required")
 	}
+	if cfg.Now == nil {
+		cfg.Now = time.Now
+	}
+	if cfg.Random == nil {
+		cfg.Random = rand.Reader
+	}
 	return &Service{store: store, assets: cfg.Assets, bucket: cfg.Bucket, secret: append([]byte(nil), cfg.SigningSecret...), scope: cfg.Scope,
-		tokenTTL: cfg.TokenTTL, presignTTL: cfg.PresignTTL, now: time.Now, random: rand.Reader}, nil
+		tokenTTL: cfg.TokenTTL, presignTTL: cfg.PresignTTL, now: cfg.Now, random: cfg.Random}, nil
 }
 
 // Create always initiates a fresh S3 upload. Without persistence it cannot promise

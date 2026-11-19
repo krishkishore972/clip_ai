@@ -5,11 +5,12 @@
 
 SHELL := /bin/bash
 
-BIN_DIR := bin
-CMD_DIR := ./cmd
-GO      ?= go
-PORT    ?=
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+BIN_DIR        := bin
+CMD_DIR        := ./cmd
+GO             ?= go
+COVER_PACKAGES := ./internal/...,./cmd/...,./migrations
+PORT           ?=
+VERSION        ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 BUILD_FLAGS := -trimpath
 LDFLAGS     := -s -w -X main.version=$(VERSION)
@@ -70,7 +71,7 @@ migrate-status: ## Show Goose migration versions
 
 test-migrations: ## Test Up/Down in a disposable schema (TEST_DATABASE_URL: direct test DB connection)
 	@test -n "$$TEST_DATABASE_URL" || { echo "TEST_DATABASE_URL is required (use a test database)" >&2; exit 1; }
-	$(GO) test -v ./migrations -run TestMediaAssetsMigration -count=1
+	$(GO) test -v ./tests/migrations -run TestMediaAssetsMigration -count=1
 
 .PHONY: test
 test: ## Run unit tests
@@ -82,7 +83,7 @@ test-race: ## Run tests with the race detector
 
 .PHONY: cover
 cover: ## Tests + HTML coverage report
-	$(GO) test -coverprofile=coverage.out ./...
+	$(GO) test -coverpkg=$(COVER_PACKAGES) -coverprofile=coverage.out ./...
 	$(GO) tool cover -html=coverage.out -o coverage.html
 
 .PHONY: lint

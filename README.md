@@ -148,6 +148,8 @@ pnpm --filter @repo/ui check-types
 pnpm --filter @repo/ui lint
 ```
 
+All Go test files are grouped under the [central API test directory](apps/api/tests/README.md). Application composition lives in importable internal packages, while CLI entrypoints remain thin wrappers. Standard `go test ./...` still discovers the complete suite.
+
 Backend checks, with no application/test database opt-in variables injected:
 
 ```bash
@@ -160,7 +162,7 @@ go build ./...
 gofmt -l .
 ```
 
-The formatting check should print nothing. Database/Redis integration checks are separately opt-in; normal offline checks do not prove a live S3/device workflow. Root build/lint/type-check/test scripts orchestrate the tasks that workspaces actually register; run the mobile suites explicitly rather than assuming the root test command includes them.
+The formatting check should print nothing. For coverage across the imported production packages, use `make cover` or `go test -coverpkg=./internal/...,./cmd/...,./migrations -coverprofile=coverage.out ./...`; plain test-package coverage is not representative after centralization. Database/Redis integration checks are separately opt-in; normal offline checks do not prove a live S3/device workflow. Root build/lint/type-check/test scripts orchestrate the tasks that workspaces actually register; run the mobile suites explicitly rather than assuming the root test command includes them.
 
 After changing the OpenAPI contract, regenerate from the repository root rather than editing generated TypeScript:
 
