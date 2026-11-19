@@ -160,6 +160,9 @@ func testIdentityAndOwnership(t *testing.T, ctx context.Context, pool *sql.DB, p
 	t.Run("completed asset outbox transaction", func(t *testing.T) {
 		testCompletedAssetOutbox(t, ctx, pool)
 	})
+	t.Run("outbox dispatcher", func(t *testing.T) {
+		testOutboxDispatcher(t, ctx, pool)
+	})
 }
 
 func testDirectOwnershipMigration(t *testing.T, ctx context.Context, pool *sql.DB, provider *goose.Provider) {

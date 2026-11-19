@@ -48,6 +48,10 @@ run: ## Run the API server (make run PORT=9090 overrides API_ADDR)
 	@test -s .env || { echo "missing or empty .env; run 'make env' first" >&2; exit 1; }
 	$(if $(PORT),API_ADDR=:$(PORT)) $(GO) run $(CMD_DIR)/server
 
+.PHONY: dispatcher
+dispatcher: ## Run the outbox dispatcher (disabled unless explicitly enabled)
+	$(GO) run $(CMD_DIR)/dispatcher
+
 ## ---- quality --------------------------------------------------------
 
 # Migrations are explicit, never part of server startup. DATABASE_URL is
