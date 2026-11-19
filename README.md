@@ -162,7 +162,7 @@ gofmt -l .
 
 The formatting check should print nothing. Database/Redis integration checks are separately opt-in; normal offline checks do not prove a live S3/device workflow. Root build/lint/type-check/test scripts orchestrate the tasks that workspaces actually register; run the mobile suites explicitly rather than assuming the root test command includes them.
 
-After changing the OpenAPI contract, regenerate rather than editing generated TypeScript:
+After changing the OpenAPI contract, regenerate from the repository root rather than editing generated TypeScript:
 
 ```bash
 pnpm --filter mobile gen:api
