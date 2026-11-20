@@ -47,12 +47,12 @@ func Serve(cfg config.Config, logger *slog.Logger, version string) error {
 	if err != nil {
 		return fmt.Errorf("initialize development uploads: %w", err)
 	}
-	if uploads != nil {
-		logger.Warn("development S3 uploads enabled; validation requires the separately enabled worker")
-	}
 	preparationEnabled, err := config.LoadPreparationEnabled()
 	if err != nil {
 		return err
+	}
+	if uploads != nil && !preparationEnabled {
+		logger.Warn("development S3 uploads enabled; the combined media worker is not enabled")
 	}
 	preparations := handler.NewMediaPreparationHandler(preparation.SQLStore{DB: database}, preparationEnabled, logger)
 	srv := httpserver.NewServer(cfg, NewHandlerWithPreparation(logger, cfg.Env, uploads, media.SQLStatusReader{DB: database}, preparations, requireAuth))

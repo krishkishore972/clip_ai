@@ -18,7 +18,7 @@ export const terminalMediaStatus = (status: MediaAssetStatus | null) =>
 export function createMediaStatusPoller(
   read: (signal: AbortSignal) => Promise<MediaAssetStatus>,
   clock = {
-    set: (callback: () => void) => setTimeout(callback, 5_000),
+    set: (callback: () => void) => setTimeout(callback, 60_000),
     clear: (timer: ReturnType<typeof setTimeout>) => clearTimeout(timer),
   },
 ) {

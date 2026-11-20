@@ -9,7 +9,7 @@ import (
 
 func main() {
 	if err := mediaworker.Run(); err != nil {
-		fmt.Fprintln(os.Stderr, "media worker startup or shutdown failed")
+		fmt.Fprintf(os.Stderr, "media worker startup or shutdown failed: %v\n", err)
 		os.Exit(1)
 	}
 }

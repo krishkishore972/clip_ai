@@ -22,7 +22,7 @@ export function createPreparationPoller(
   read: (signal: AbortSignal) => Promise<MediaPreparationStatus>,
   ensure: (signal: AbortSignal) => Promise<MediaPreparationStatus>,
   clock = {
-    set: (callback: () => void) => setTimeout(callback, 5_000),
+    set: (callback: () => void) => setTimeout(callback, 60_000),
     clear: (timer: ReturnType<typeof setTimeout>) => clearTimeout(timer),
   },
 ) {

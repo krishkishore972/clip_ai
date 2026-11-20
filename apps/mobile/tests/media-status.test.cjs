@@ -57,6 +57,41 @@ function fixture(read) {
   };
 }
 
+test("validation waits 60 seconds between automatic checks; manual refresh stays immediate", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let calls = 0;
+  const poller = createMediaStatusPoller(async () => {
+    calls++;
+    return status();
+  });
+  try {
+    poller.setEnabled(true);
+    await settle();
+    assert.equal(calls, 1);
+    t.mock.timers.tick(59_999);
+    await settle();
+    assert.equal(calls, 1);
+    t.mock.timers.tick(1);
+    await settle();
+    assert.equal(calls, 2);
+    poller.check();
+    await settle();
+    assert.equal(calls, 3);
+    t.mock.timers.tick(59_999);
+    await settle();
+    assert.equal(calls, 3);
+    t.mock.timers.tick(1);
+    await settle();
+    assert.equal(calls, 4);
+    poller.setEnabled(false);
+    t.mock.timers.tick(60_000);
+    await settle();
+    assert.equal(calls, 4);
+  } finally {
+    poller.setEnabled(false);
+  }
+});
+
 test("pending → validating → ready polls sequentially and stops", async () => {
   const states = ["uploaded_unvalidated", "validating", "ready"];
   const f = fixture(async (_, count) => status(states[count - 1]));

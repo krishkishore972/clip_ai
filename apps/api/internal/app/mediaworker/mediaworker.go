@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -50,7 +51,7 @@ func Run() error {
 
 	database, err := db.Connect(cfg.DatabaseURL)
 	if err != nil {
-		return errors.New("media process worker database connection failed")
+		return fmt.Errorf("media process worker database connection failed: %w", err)
 	}
 
 	defer database.Close()
@@ -63,18 +64,18 @@ func Run() error {
 
 	downloader, err := storage.NewDownloader(startup, cfg.Region, cfg.Bucket)
 	if err != nil {
-		return errors.New("media process worker storage initialization failed")
+		return fmt.Errorf("media process worker storage initialization failed: %w", err)
 	}
 
 	uploader, err := storage.NewDerivedUploader(startup, config.S3{Region: cfg.Region, Bucket: cfg.Bucket})
 	if err != nil {
-		return errors.New("media worker storage initialization failed")
+		return fmt.Errorf("media worker storage initialization failed: %w", err)
 	}
 
 	store := job.SQLProcessStore{DB: database}
 	handler, err := job.NewProcessHandler(store, downloader, uploader, job.ProcessOptions{Bucket: cfg.Bucket, TempDir: cfg.TempDir, DownloadTimeout: 15 * time.Minute, EncodeTimeout: 60 * time.Minute, UploadTimeout: 10 * time.Minute, TaskTimeout: 90 * time.Minute}, logger)
 	if err != nil {
-		return errors.New("media process worker handler initialization failed")
+		return fmt.Errorf("media process worker handler initialization failed: %w", err)
 	}
 
 	if err := CheckTemporaryCapacity(cfg.TempDir); err != nil {

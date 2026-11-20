@@ -2,10 +2,8 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { join } = require("node:path");
 const lib = (name) => require(join(process.env.UPLOAD_TEST_BUILD_DIR, name));
-const {
-  createPreparationApi,
-  parsePreparationStatus,
-} = lib("api/preparation.js");
+const { createPreparationApi, parsePreparationStatus } =
+  lib("api/preparation.js");
 const { AuthenticationRequired } = lib("api/uploads.js");
 const { createPreparationPoller } = lib("uploads/preparation-poller.js");
 const { preparationCopy } = lib("uploads/preparation-copy.js");
@@ -177,6 +175,44 @@ function fixture(read, ensure = async () => status()) {
     },
   };
 }
+test("preparation waits 60 seconds between automatic checks; manual refresh stays immediate", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let calls = 0;
+  const poller = createPreparationPoller(
+    async () => {
+      calls++;
+      return status();
+    },
+    async () => status(),
+  );
+  try {
+    poller.setEnabled(true);
+    await settle();
+    assert.equal(calls, 1);
+    t.mock.timers.tick(59_999);
+    await settle();
+    assert.equal(calls, 1);
+    t.mock.timers.tick(1);
+    await settle();
+    assert.equal(calls, 2);
+    poller.check();
+    await settle();
+    assert.equal(calls, 3);
+    t.mock.timers.tick(59_999);
+    await settle();
+    assert.equal(calls, 3);
+    t.mock.timers.tick(1);
+    await settle();
+    assert.equal(calls, 4);
+    poller.setEnabled(false);
+    t.mock.timers.tick(60_000);
+    await settle();
+    assert.equal(calls, 4);
+  } finally {
+    poller.setEnabled(false);
+  }
+});
+
 test("preparation sequential pending/preparing/ready polling stops terminal", async () => {
   const states = ["pending", "preparing", "ready"];
   let calls = 0;

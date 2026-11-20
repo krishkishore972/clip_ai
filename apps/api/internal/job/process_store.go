@@ -104,7 +104,7 @@ func (s SQLProcessStore) Claim(ctx context.Context, id, token string, lease time
 	var validationLive bool
 	err = tx.QueryRowContext(op, `
 		SELECT id, storage_bucket, storage_key, size_bytes, status,
-		       validation_lease_until > clock_timestamp()
+		       COALESCE(validation_lease_until > clock_timestamp(), FALSE)
 		FROM media_assets
 		WHERE id = $1 AND user_id IS NOT NULL
 		FOR UPDATE
@@ -338,7 +338,11 @@ func (s SQLProcessStore) Recover(ctx context.Context, limit int) (int, error) {
 		}
 		items = append(items, v)
 	}
+	err = rows.Err()
 	rows.Close()
+	if err != nil {
+		return 0, processDBError(ctx, op)
+	}
 	for _, item := range items {
 		status, code := "pending", "PREPARATION_INTERRUPTED"
 		if item.attempts >= ProcessAttempts {
