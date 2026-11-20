@@ -64,17 +64,21 @@ type Service struct {
 }
 
 func New(store Store, cfg Config) (*Service, error) {
+
 	if store == nil || cfg.Assets == nil || cfg.Bucket == "" || len(cfg.SigningSecret) < 32 || cfg.Scope == "" ||
 		cfg.TokenTTL < time.Minute || cfg.TokenTTL > 24*time.Hour ||
 		cfg.PresignTTL < time.Second || cfg.PresignTTL > 15*time.Minute {
 		return nil, errors.New("upload: storage, asset recorder, bucket, signing secret (32+ bytes), scope, token TTL (1m–24h), and signing TTL (1s–15m) are required")
 	}
+
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
+
 	if cfg.Random == nil {
 		cfg.Random = rand.Reader
 	}
+
 	return &Service{store: store, assets: cfg.Assets, bucket: cfg.Bucket, secret: append([]byte(nil), cfg.SigningSecret...), scope: cfg.Scope,
 		tokenTTL: cfg.TokenTTL, presignTTL: cfg.PresignTTL, now: cfg.Now, random: cfg.Random}, nil
 }
@@ -85,15 +89,20 @@ func (s *Service) Create(ctx context.Context, in CreateUploadRequest) (UploadSes
 	if in.SizeBytes > MaxUploadBytes {
 		return UploadSession{}, ErrTooLarge
 	}
+
 	ext := strings.ToLower(path.Ext(in.Filename))
+
 	want := map[string]string{".mp4": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm"}[ext]
+
 	if in.SizeBytes <= 0 || len(in.Filename) == 0 || len(in.Filename) > 255 || want == "" || want != in.ContentType ||
 		strings.ContainsAny(in.Filename, `/\`) || strings.IndexFunc(in.Filename, unicode.IsControl) >= 0 {
 		return UploadSession{}, ErrInvalid
 	}
+
 	if err := ctx.Err(); err != nil {
 		return UploadSession{}, err
 	}
+
 	p, ok := auth.FromContext(ctx)
 	if !ok {
 		return UploadSession{}, ErrUnauthenticated
@@ -102,6 +111,7 @@ func (s *Service) Create(ctx context.Context, in CreateUploadRequest) (UploadSes
 	if _, err := io.ReadFull(s.random, id[:]); err != nil {
 		return UploadSession{}, fmt.Errorf("upload: generate ID: %w", err)
 	}
+	
 	c := claims{
 		V:         3,
 		UserID:    p.UserID,
@@ -113,15 +123,18 @@ func (s *Service) Create(ctx context.Context, in CreateUploadRequest) (UploadSes
 		Type:      in.ContentType,
 		ExpiresAt: s.now().Add(s.tokenTTL).Unix(),
 	}
+
 	c.Key = "dev-uploads/" + c.ID + "/source" + ext
 	awsID, err := s.store.Begin(ctx, c.Key, c.Type)
 	if err != nil {
 		return UploadSession{}, backendError(err)
 	}
+
 	c.AWSID = awsID
 	if awsID == "" {
 		return UploadSession{}, ErrUnavailable
 	}
+
 	token, err := s.sign(c)
 	if err != nil || len(token) > MaxTokenBytes {
 		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
@@ -129,6 +142,7 @@ func (s *Service) Create(ctx context.Context, in CreateUploadRequest) (UploadSes
 		_ = s.store.Abort(cleanupCtx, c.Key, c.AWSID)
 		return UploadSession{}, ErrUnavailable
 	}
+	
 	return state(c, token, "uploading", nil), nil
 }
 
