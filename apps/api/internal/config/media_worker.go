@@ -10,17 +10,17 @@ import (
 	"unicode"
 )
 
-// PreparationWorker contains combined media-process configuration; policy budgets are fixed.
-// DatabaseURL is secret and must never be logged.
-type PreparationWorker struct {
+// MediaWorker contains combined validation and preparation configuration.
+// Processing budgets are fixed by the media pipeline policy.
+type MediaWorker struct {
 	Enabled                 bool
 	DatabaseURL             string
 	LogLevel                slog.Level
 	Region, Bucket, TempDir string
 }
 
-func LoadPreparationWorker() (PreparationWorker, error) {
-	var cfg PreparationWorker
+func LoadMediaWorker() (MediaWorker, error) {
+	var cfg MediaWorker
 	raw, present := os.LookupEnv("MEDIA_PREPARATION_WORKER_ENABLED")
 	if !present {
 		return cfg, nil
@@ -37,7 +37,7 @@ func LoadPreparationWorker() (PreparationWorker, error) {
 		return cfg, err
 	}
 	if !feature {
-		return cfg, errors.New("config: preparation worker requires MEDIA_PREPARATION_ENABLED")
+		return cfg, errors.New("config: media worker requires MEDIA_PREPARATION_ENABLED")
 	}
 	cfg.Enabled = true
 	var errs []error
@@ -60,16 +60,8 @@ func LoadPreparationWorker() (PreparationWorker, error) {
 	if cfg.TempDir != "" && (!filepath.IsAbs(cfg.TempDir) || filepath.Clean(cfg.TempDir) == string(filepath.Separator)) {
 		errs = append(errs, errors.New("config: MEDIA_PREPARATION_TEMP_DIR must be a private absolute directory"))
 	}
-	// Never share a root with validation, including a configured parent/child.
-	validation := strings.TrimSpace(os.Getenv("VALIDATION_TEMP_DIR"))
-	if validation != "" && cfg.TempDir != "" {
-		a, b := filepath.Clean(cfg.TempDir), filepath.Clean(validation)
-		if a == b || strings.HasPrefix(a, b+string(filepath.Separator)) || strings.HasPrefix(b, a+string(filepath.Separator)) {
-			errs = append(errs, errors.New("config: preparation and validation temporary roots must be separate"))
-		}
-	}
 	if len(errs) > 0 {
-		return PreparationWorker{}, errors.Join(errs...)
+		return MediaWorker{}, errors.Join(errs...)
 	}
 	return cfg, nil
 }

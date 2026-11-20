@@ -9,8 +9,6 @@ import (
 )
 
 const (
-	TaskType    = "media:prepare"
-	Queue       = "preparation"
 	Version     = 1
 	MaxAttempts = 2
 )
@@ -45,14 +43,15 @@ type Artifacts struct {
 	Bucket, AudioKey          string
 	AudioSHA256, SourceSHA256 string
 	AudioSizeBytes            int64
+	// AudioStartMs is the source timestamp of WAV sample zero. It may be
+	// negative and must not be clamped.
+	AudioStartMs int64
 }
 
 type Outcome struct {
 	Status, Code string
 	Artifacts    *Artifacts
 }
-
-type Delivery struct{ AssetID, EventID string }
 
 // SafeFailureCode never exposes arbitrary persisted text to API callers.
 func SafeFailureCode(code string) string {

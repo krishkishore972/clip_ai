@@ -53,7 +53,10 @@ func TestPrepareRealFixtures(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "original.mp4")
 			prepareFixture(t, path, tc.extra...)
-			assertPrepared(t, path)
+			out := assertPrepared(t, path)
+			if out.Audio.StartMs != 0 {
+				t.Fatalf("zero-origin fixture reported %d ms", out.Audio.StartMs)
+			}
 		})
 	}
 }
@@ -122,6 +125,9 @@ func TestPrepareRotationAndOffsets(t *testing.T) {
 			args = append(args, "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=1.2", "-c:v", "libx264", "-threads", "2", "-c:a", "aac", source)
 			fixtureCommand(t, args...)
 			out := assertPrepared(t, source)
+			if out.Audio.StartMs != 0 {
+				t.Fatalf("offset fixture reported %d ms origin", out.Audio.StartMs)
+			}
 			// Inspect decoded PCM, not just container metadata: a delayed audio
 			// stream must keep leading silence on the shared source timeline.
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -205,6 +211,12 @@ func TestPrepareAttachedArtworkAndAbsoluteOrigin(t *testing.T) {
 		out := assertPrepared(t, source)
 		if out.Audio.DurationMs < 1100 || out.Audio.DurationMs > 1300 {
 			t.Fatalf("absolute source origin padded output: %+v", out)
+		}
+		// AAC priming places the earliest audio sample slightly before the
+		// nominal 10s video offset, so the recorded origin is the real
+		// format.start_time rather than the requested constant.
+		if out.Audio.StartMs < 9900 || out.Audio.StartMs > 10000 {
+			t.Fatalf("source origin not recorded: %+v", out.Audio)
 		}
 	})
 }

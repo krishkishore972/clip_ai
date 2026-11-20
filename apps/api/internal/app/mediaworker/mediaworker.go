@@ -22,7 +22,7 @@ import (
 )
 
 func Run() error {
-	cfg, err := config.LoadPreparationWorker()
+	cfg, err := config.LoadMediaWorker()
 
 	if err != nil {
 		return err
@@ -68,7 +68,7 @@ func Run() error {
 
 	uploader, err := storage.NewDerivedUploader(startup, config.S3{Region: cfg.Region, Bucket: cfg.Bucket})
 	if err != nil {
-		return errors.New("preparation worker storage initialization failed")
+		return errors.New("media worker storage initialization failed")
 	}
 
 	store := job.SQLProcessStore{DB: database}
@@ -77,7 +77,7 @@ func Run() error {
 		return errors.New("media process worker handler initialization failed")
 	}
 
-	if err := CheckTemporaryCapacity(cfg.TempDir, os.Getenv("VALIDATION_TEMP_DIR")); err != nil {
+	if err := CheckTemporaryCapacity(cfg.TempDir); err != nil {
 		return err
 	}
 	if _, err := store.Recover(startup, 100); err != nil {
@@ -95,9 +95,6 @@ func Run() error {
 	// Initial completed uploads retain the existing validation event name; the
 	// combined worker consumes it and performs validation plus preparation.
 	mux.HandleFunc(job.ValidationTaskType, handler.ProcessTask)
-	// Accept preparation events created by older clients while migration 00006
-	// is still in the development rollout window.
-	mux.HandleFunc(preparation.TaskType, handler.ProcessTask)
 	if err := server.Start(mux); err != nil {
 		return errors.New("media process worker queue startup failed")
 	}
@@ -147,31 +144,16 @@ func CheckSchema(ctx context.Context, database *sql.DB) error {
 }
 
 // CheckTemporaryCapacity is a CLI preflight, deliberately not imposed on unit fixtures.
-func CheckTemporaryCapacity(root, validationRoot string) error {
+func CheckTemporaryCapacity(root string) error {
 	resolved, err := filepath.EvalSymlinks(root)
 	if err != nil {
 		return errors.New("media process worker temporary root unavailable")
-	}
-
-	if validationRoot != "" {
-		validation, err := filepath.EvalSymlinks(validationRoot)
-		if err != nil {
-			validation = filepath.Clean(validationRoot)
-		}
-		if resolved == validation || isWithin(resolved, validation) || isWithin(validation, resolved) {
-			return errors.New("media process worker temporary root must be separate from validation")
-		}
 	}
 
 	var stats syscall.Statfs_t
 	if err := syscall.Statfs(resolved, &stats); err != nil || stats.Bsize <= 0 || stats.Bavail < uint64((8*1024*1024*1024+stats.Bsize-1)/stats.Bsize) {
 		return errors.New("media process worker requires at least 8 GiB free temporary space")
 	}
-	
-	return nil
-}
 
-func isWithin(path, root string) bool {
-	rel, err := filepath.Rel(root, path)
-	return err == nil && rel != ".." && !filepath.IsAbs(rel) && len(rel) > 0 && rel != "." && !(len(rel) >= 3 && rel[:3] == "../")
+	return nil
 }

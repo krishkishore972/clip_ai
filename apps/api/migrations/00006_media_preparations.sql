@@ -15,6 +15,7 @@ CREATE TABLE media_preparations (
     audio_sha256 text,
     source_sha256 text,
     audio_size_bytes bigint,
+    audio_start_ms bigint,
     created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     prepared_at timestamptz,
@@ -32,11 +33,13 @@ CREATE TABLE media_preparations (
             AND audio_sha256 IS NOT NULL AND audio_sha256 ~ '^[0-9a-f]{64}$'
             AND source_sha256 IS NOT NULL AND source_sha256 ~ '^[0-9a-f]{64}$'
             AND audio_size_bytes IS NOT NULL AND audio_size_bytes BETWEEN 1 AND 240000000
+            AND audio_start_ms IS NOT NULL
+                AND audio_start_ms BETWEEN -86400000 AND 86400000
             AND attempts > 0 AND failure_code IS NULL
         ELSE
             prepared_at IS NULL AND storage_bucket IS NULL
             AND audio_key IS NULL AND audio_sha256 IS NULL AND source_sha256 IS NULL
-            AND audio_size_bytes IS NULL
+            AND audio_size_bytes IS NULL AND audio_start_ms IS NULL
         END
     ),
     CONSTRAINT media_preparations_failure_state CHECK (
@@ -49,10 +52,6 @@ CREATE TABLE media_preparations (
 CREATE INDEX media_preparations_expired_idx
     ON media_preparations (lease_until, asset_id)
     WHERE status = 'preparing';
-
-CREATE INDEX outbox_events_preparation_asset_idx
-    ON outbox_events (asset_id, created_at DESC, id DESC)
-    WHERE task_type = 'media:prepare' AND queue_name = 'preparation';
 
 CREATE INDEX outbox_events_process_asset_idx
     ON outbox_events (asset_id, created_at DESC, id DESC)

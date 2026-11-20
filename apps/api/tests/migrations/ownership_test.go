@@ -163,17 +163,8 @@ func testIdentityAndOwnership(t *testing.T, ctx context.Context, pool *sql.DB, p
 	t.Run("outbox dispatcher", func(t *testing.T) {
 		testOutboxDispatcher(t, ctx, pool)
 	})
-	t.Run("validation persistence and recovery", func(t *testing.T) {
-		testValidationWorkerStore(t, ctx, pool, provider)
-	})
-	t.Run("validation queue pipeline", func(t *testing.T) {
-		testValidationPipeline(t, ctx, pool)
-	})
 	t.Run("owned media status", func(t *testing.T) {
 		testMediaStatus(t, ctx, pool)
-	})
-	t.Run("preparation persistence", func(t *testing.T) {
-		testPreparationStore(t, ctx, pool, provider)
 	})
 }
 

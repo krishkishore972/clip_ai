@@ -259,9 +259,10 @@ func (s SQLProcessStore) Finish(ctx context.Context, asset ProcessAsset, outcome
 			UPDATE media_preparations
 			SET status = 'ready', failure_code = NULL, claim_token = NULL, lease_until = NULL, output_id = NULL,
 			    storage_bucket = $2, audio_key = $3, audio_sha256 = $4, source_sha256 = $5,
-			    audio_size_bytes = $6, prepared_at = clock_timestamp(), updated_at = clock_timestamp()
+			    audio_size_bytes = $6, audio_start_ms = $7,
+			    prepared_at = clock_timestamp(), updated_at = clock_timestamp()
 			WHERE asset_id = $1 AND lease_until > clock_timestamp()
-		`, asset.ID, artifacts.Bucket, artifacts.AudioKey, artifacts.AudioSHA256, artifacts.SourceSHA256, artifacts.AudioSizeBytes)
+		`, asset.ID, artifacts.Bucket, artifacts.AudioKey, artifacts.AudioSHA256, artifacts.SourceSHA256, artifacts.AudioSizeBytes, artifacts.AudioStartMs)
 		if err != nil {
 			return processDBError(ctx, op)
 		}
@@ -269,7 +270,7 @@ func (s SQLProcessStore) Finish(ctx context.Context, asset ProcessAsset, outcome
 			return ErrProcessStale
 		}
 	} else {
-		if outcome.Code == "" || !validationCodePattern.MatchString(outcome.Code) {
+		if outcome.Code == "" || !processCodePattern.MatchString(outcome.Code) {
 			return ErrProcessArguments
 		}
 		if _, err := tx.ExecContext(op, `

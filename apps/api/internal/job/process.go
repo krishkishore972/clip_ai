@@ -43,7 +43,7 @@ func NewProcessHandler(store ProcessStore, downloader VideoDownloader, uploader 
 	if store == nil || downloader == nil || uploader == nil || logger == nil || options.Bucket == "" || options.DownloadTimeout <= 0 || options.EncodeTimeout <= 0 || options.UploadTimeout <= 0 || options.TaskTimeout <= options.DownloadTimeout+options.EncodeTimeout+options.UploadTimeout {
 		return nil, errors.New("media process: invalid worker options")
 	}
-	root, err := prepareValidationRoot(options.TempDir)
+	root, err := prepareProcessRoot(options.TempDir)
 	if err != nil {
 		return nil, errors.New("media process: private temporary root unavailable")
 	}
@@ -56,7 +56,7 @@ func NewProcessHandler(store ProcessStore, downloader VideoDownloader, uploader 
 }
 
 func processAssetID(task *asynq.Task) (string, error) {
-	if task == nil || (task.Type() != ProcessTaskType && task.Type() != preparation.TaskType) || len(task.Payload()) > 1024 {
+	if task == nil || (task.Type() != ValidationTaskType && task.Type() != ProcessTaskType) || len(task.Payload()) > 1024 {
 		return "", errors.New("invalid media process task")
 	}
 	var input struct {
@@ -64,7 +64,7 @@ func processAssetID(task *asynq.Task) (string, error) {
 	}
 	decoder := json.NewDecoder(bytes.NewReader(task.Payload()))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&input); err != nil || !ValidValidationAssetID(input.AssetID) {
+	if err := decoder.Decode(&input); err != nil || !validProcessAssetID(input.AssetID) {
 		return "", errors.New("invalid media process task")
 	}
 	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
@@ -171,13 +171,28 @@ func (h *ProcessHandler) process(ctx context.Context, asset ProcessAsset) (Proce
 	if err != nil || audioHash != prepared.Audio.SHA256 {
 		return ProcessOutcome{AssetStatus: "uploaded_unvalidated", Code: "PREPARATION_INVALID_OUTPUT"}, errors.New("invalid audio")
 	}
+	if prepared.Audio.StartMs < -media.MaxAudioStartMs || prepared.Audio.StartMs > media.MaxAudioStartMs {
+		return ProcessOutcome{AssetStatus: "uploaded_unvalidated", Code: "PREPARATION_INVALID_OUTPUT"}, errors.New("invalid audio timeline")
+	}
 	uploadCtx, stopUpload := context.WithTimeout(ctx, h.options.UploadTimeout)
 	audio, err := h.uploader.UploadDerived(uploadCtx, asset.ID, asset.OutputID, "audio", prepared.Audio.Path)
 	stopUpload()
 	if err != nil {
 		return ProcessOutcome{AssetStatus: "uploaded_unvalidated", Code: "PREPARATION_UPLOAD_FAILED"}, err
 	}
-	return ProcessOutcome{AssetStatus: "ready", PrepStatus: "ready", Metadata: &metadata, Artifacts: &preparation.Artifacts{Bucket: asset.Bucket, AudioKey: audio.Key, AudioSHA256: audioHash, SourceSHA256: before, AudioSizeBytes: audio.SizeBytes}}, nil
+	return ProcessOutcome{
+		AssetStatus: "ready",
+		PrepStatus:  "ready",
+		Metadata:    &metadata,
+		Artifacts: &preparation.Artifacts{
+			Bucket:         asset.Bucket,
+			AudioKey:       audio.Key,
+			AudioSHA256:    audioHash,
+			SourceSHA256:   before,
+			AudioSizeBytes: audio.SizeBytes,
+			AudioStartMs:   prepared.Audio.StartMs,
+		},
+	}, nil
 }
 
 func (h *ProcessHandler) newProcessDirectory() (string, error) {

@@ -111,7 +111,7 @@ func (s *Service) Create(ctx context.Context, in CreateUploadRequest) (UploadSes
 	if _, err := io.ReadFull(s.random, id[:]); err != nil {
 		return UploadSession{}, fmt.Errorf("upload: generate ID: %w", err)
 	}
-	
+
 	c := claims{
 		V:         3,
 		UserID:    p.UserID,
@@ -142,7 +142,7 @@ func (s *Service) Create(ctx context.Context, in CreateUploadRequest) (UploadSes
 		_ = s.store.Abort(cleanupCtx, c.Key, c.AWSID)
 		return UploadSession{}, ErrUnavailable
 	}
-	
+
 	return state(c, token, "uploading", nil), nil
 }
 

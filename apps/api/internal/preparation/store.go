@@ -13,6 +13,30 @@ import (
 
 type SQLStore struct{ DB *sql.DB }
 
+// CheckSchema verifies the preparation table without reading application rows
+// or applying migrations.
+func CheckSchema(ctx context.Context, db *sql.DB) error {
+	if db == nil {
+		return ErrDatabase
+	}
+	rows, err := db.QueryContext(ctx, `
+		SELECT asset_id, pipeline_version, status, attempts, failure_code,
+		       claim_token, lease_until, output_id, storage_bucket, audio_key,
+		       audio_sha256, source_sha256, audio_size_bytes, created_at,
+		       updated_at, prepared_at
+		FROM media_preparations
+		LIMIT 0
+	`)
+	if err != nil {
+		return dbError(ctx)
+	}
+	defer rows.Close()
+	if err := rows.Err(); err != nil {
+		return dbError(ctx)
+	}
+	return nil
+}
+
 func validateStatus(in Status) (Status, error) {
 	if in.AssetID == "" || in.Attempts < 0 || in.Attempts > MaxAttempts || in.UpdatedAt.IsZero() {
 		return Status{}, ErrDatabase

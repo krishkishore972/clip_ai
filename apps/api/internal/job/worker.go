@@ -1,72 +1,45 @@
 package job
 
 import (
-	"context"
 	"log/slog"
 	"time"
 
 	"github.com/hibiken/asynq"
-	"github.com/krishkishore972/clip_ai/internal/config"
-	"github.com/krishkishore972/clip_ai/internal/preparation"
 )
 
-// ValidationWorkerConfig consumes only validation tasks. The durable handler
-// owns the three-retry budget, including tasks enqueued with legacy options.
-func ValidationWorkerConfig(logger *slog.Logger) asynq.Config {
+// ProcessWorkerConfig is the only media-consumer policy. It accepts the
+// initial validation event and later process/preparation event types in one
+// bounded worker.
+func ProcessWorkerConfig(logger *slog.Logger) asynq.Config {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return asynq.Config{
-		Concurrency: 1,
-		Queues:      map[string]int{ValidationQueue: 1},
-		// Shutdown interrupts unfinished work after this drain budget and Asynq
-		// requeues it. Handler cancellation must clean up before process exit;
-		// durable leases/recovery cover interrupted cleanup and lost owners.
+		Concurrency:     1,
+		Queues:          map[string]int{ProcessQueue: 1, ValidationQueue: 1},
 		ShutdownTimeout: 30 * time.Second,
-		RetryDelayFunc:  validationRetryDelay,
-		Logger:          validationQueueLogger{logger: logger},
+		RetryDelayFunc:  func(_ int, _ error, _ *asynq.Task) time.Duration { return time.Minute },
+		Logger:          processQueueLogger{logger: logger},
 		LogLevel:        asynq.DebugLevel,
 	}
 }
 
-// ProcessWorkerConfig consumes the combined validation and preparation task.
-func ProcessWorkerConfig(logger *slog.Logger) asynq.Config {
-	cfg := ValidationWorkerConfig(logger)
-	cfg.Queues = map[string]int{ProcessQueue: 1, ValidationQueue: 1, preparation.Queue: 1}
-	cfg.RetryDelayFunc = func(_ int, _ error, _ *asynq.Task) time.Duration { return time.Minute }
-	return cfg
-}
+// Asynq messages can contain credentials, payloads, and provider errors. Do
+// not format, inspect, or forward any supplied arguments.
+type processQueueLogger struct{ logger *slog.Logger }
 
-// NewValidationInspector bounds individual background-context inspection
-// commands; Asynq's inspector does not accept caller contexts. Disable transport
-// retries and use short socket budgets so recovery can observe cancellation.
-func NewValidationInspector(cfg config.Redis) *asynq.Inspector {
-	options := cfg.Options
-	options.DialTimeout = time.Second
-	options.ReadTimeout = time.Second
-	options.WriteTimeout = time.Second
-	return asynq.NewInspector(contextRedisOptions{options})
+func (l processQueueLogger) Debug(...interface{}) {
+	l.logger.Debug("media process queue event", "code", "QUEUE_DEBUG")
 }
-
-func validationRetryDelay(n int, _ error, _ *asynq.Task) time.Duration {
-	if n <= 0 {
-		return time.Minute
-	}
-	if n == 1 {
-		return 2 * time.Minute
-	}
-	return 4 * time.Minute
+func (l processQueueLogger) Info(...interface{}) {
+	l.logger.Info("media process queue event", "code", "QUEUE_INFO")
 }
-
-// Asynq's messages can embed Redis credentials, payloads, and raw provider
-// errors. Do not format, inspect, or forward any supplied arguments.
-type validationQueueLogger struct{ logger *slog.Logger }
-
-func (l validationQueueLogger) log(level slog.Level, code string) {
-	l.logger.Log(context.Background(), level, "validation queue event", "code", code)
+func (l processQueueLogger) Warn(...interface{}) {
+	l.logger.Warn("media process queue event", "code", "QUEUE_WARN")
 }
-func (l validationQueueLogger) Debug(...interface{}) { l.log(slog.LevelDebug, "QUEUE_DEBUG") }
-func (l validationQueueLogger) Info(...interface{})  { l.log(slog.LevelInfo, "QUEUE_INFO") }
-func (l validationQueueLogger) Warn(...interface{})  { l.log(slog.LevelWarn, "QUEUE_WARN") }
-func (l validationQueueLogger) Error(...interface{}) { l.log(slog.LevelError, "QUEUE_ERROR") }
-func (l validationQueueLogger) Fatal(...interface{}) { l.log(slog.LevelError, "QUEUE_FATAL") }
+func (l processQueueLogger) Error(...interface{}) {
+	l.logger.Error("media process queue event", "code", "QUEUE_ERROR")
+}
+func (l processQueueLogger) Fatal(...interface{}) {
+	l.logger.Error("media process queue event", "code", "QUEUE_FATAL")
+}

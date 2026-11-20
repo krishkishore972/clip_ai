@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"regexp"
 	"time"
+
+	"github.com/krishkishore972/clip_ai/internal/media"
 )
 
 var hashPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -19,7 +21,8 @@ func validArtifacts(c Claim, a *Artifacts) bool {
 	prefix := "dev-uploads/" + c.AssetID + "/derived/v1/" + c.OutputID + "/"
 	return a.AudioKey == prefix+"audio.wav" &&
 		hashPattern.MatchString(a.AudioSHA256) && hashPattern.MatchString(a.SourceSHA256) &&
-		a.AudioSizeBytes > 0 && a.AudioSizeBytes <= 240_000_000
+		a.AudioSizeBytes > 0 && a.AudioSizeBytes <= 240_000_000 &&
+		a.AudioStartMs >= -media.MaxAudioStartMs && a.AudioStartMs <= media.MaxAudioStartMs
 }
 
 func (s SQLStore) Finish(ctx context.Context, c Claim, o Outcome) error {
@@ -115,11 +118,12 @@ func (s SQLStore) Finish(ctx context.Context, c Claim, o Outcome) error {
 		    audio_sha256 = $4,
 		    source_sha256 = $5,
 		    audio_size_bytes = $6,
+		    audio_start_ms = $7,
 		    prepared_at = clock_timestamp(),
 		    updated_at = clock_timestamp()
 		WHERE asset_id = $1
 		    AND lease_until > clock_timestamp()
-	`, c.AssetID, a.Bucket, a.AudioKey, a.AudioSHA256, a.SourceSHA256, a.AudioSizeBytes)
+	`, c.AssetID, a.Bucket, a.AudioKey, a.AudioSHA256, a.SourceSHA256, a.AudioSizeBytes, a.AudioStartMs)
 		if err != nil {
 			return dbError(op)
 		}

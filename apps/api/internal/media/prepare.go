@@ -17,7 +17,12 @@ import (
 	"time"
 )
 
-const MaxPreparedAudioBytes int64 = 240_000_000
+const (
+	MaxPreparedAudioBytes int64 = 240_000_000
+	// MaxAudioStartMs bounds the absolute source timestamp that WAV sample zero
+	// may map to. Negative origins are legitimate for edit-list containers.
+	MaxAudioStartMs int64 = 24 * 60 * 60 * 1000
+)
 
 var (
 	ErrPreparationUnavailable = errors.New("media: preparation executable unavailable")
@@ -31,6 +36,7 @@ type PreparedAudio struct {
 	SizeBytes            int64
 	SHA256               string
 	DurationMs           int64
+	StartMs              int64
 	SampleRate, Channels int
 }
 
@@ -109,7 +115,7 @@ func PrepareFile(ctx context.Context, sourcePath, outputDir string, timeout time
 	}
 	video := metadata.Video[0]
 	audio := metadata.Audio[0]
-	durationMs, err := preparationTimeline(details, video.Index, audio.Index, metadata.DurationMs)
+	durationMs, startMs, err := preparationTimeline(details, video.Index, audio.Index, metadata.DurationMs)
 	if err != nil {
 		return out, err
 	}
@@ -156,7 +162,7 @@ func PrepareFile(ctx context.Context, sourcePath, outputDir string, timeout time
 	if os.Chmod(audioPath, 0600) != nil {
 		return out, ErrPreparationFailed
 	}
-	return PreparedMedia{SourceSHA256: before, Audio: PreparedAudio{Path: audioPath, SizeBytes: audioSize, SHA256: audioHash, DurationMs: audioDuration, SampleRate: 16000, Channels: 1}}, nil
+	return PreparedMedia{SourceSHA256: before, Audio: PreparedAudio{Path: audioPath, SizeBytes: audioSize, SHA256: audioHash, DurationMs: audioDuration, StartMs: startMs, SampleRate: 16000, Channels: 1}}, nil
 }
 
 // cappedPreparationBuffer continues draining subprocess output after its cap.
@@ -312,10 +318,19 @@ func verifyAudio(audio preparationProbeData, duration int64) (int64, error) {
 // FFmpeg -start_at_zero subtracts one demuxer origin from every input track.
 // Some MP4 headers include that origin in format.duration, so prefer selected
 // stream endpoints when available rather than padding an absolute time.
-func preparationTimeline(data preparationProbeData, videoIndex, audioIndex int, fallback int64) (int64, error) {
+//
+// The returned start is the source timestamp of WAV sample zero. It equals
+// format.start_time because -copyts -start_at_zero rebases the selected audio
+// stream by that same demuxer origin. Callers map audio time to source time as
+// source_ms = startMs + wav_ms.
+func preparationTimeline(data preparationProbeData, videoIndex, audioIndex int, fallback int64) (int64, int64, error) {
 	origin, err := strconv.ParseFloat(data.Format.StartTime, 64)
 	if err != nil || math.IsNaN(origin) || math.IsInf(origin, 0) {
-		return 0, reject("UNSUPPORTED_SOURCE_TIMELINE")
+		return 0, 0, reject("UNSUPPORTED_SOURCE_TIMELINE")
+	}
+	startMs := int64(math.Round(origin * 1000))
+	if startMs < -MaxAudioStartMs || startMs > MaxAudioStartMs {
+		return 0, 0, reject("UNSUPPORTED_SOURCE_TIMELINE")
 	}
 	end := math.Inf(-1)
 	known := 0
@@ -335,13 +350,13 @@ func preparationTimeline(data preparationProbeData, videoIndex, audioIndex int, 
 		// WebM commonly omits stream durations. Its finite format duration is
 		// usable only for an origin close to zero; ambiguous origins fail closed.
 		if math.Abs(origin) > 0.1 {
-			return 0, reject("UNSUPPORTED_SOURCE_TIMELINE")
+			return 0, 0, reject("UNSUPPORTED_SOURCE_TIMELINE")
 		}
-		return fallback, nil
+		return fallback, startMs, nil
 	}
 	duration := end - origin
 	if !validDuration(duration) || duration > MaxDurationSeconds {
-		return 0, reject("UNSUPPORTED_SOURCE_TIMELINE")
+		return 0, 0, reject("UNSUPPORTED_SOURCE_TIMELINE")
 	}
-	return int64(math.Round(duration * 1000)), nil
+	return int64(math.Round(duration * 1000)), startMs, nil
 }

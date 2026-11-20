@@ -53,15 +53,11 @@ run: ## Run the API server (make run PORT=9090 overrides API_ADDR)
 dispatcher: ## Run the outbox dispatcher (disabled unless explicitly enabled)
 	$(GO) run $(CMD_DIR)/dispatcher
 
-.PHONY: worker
-worker: ## Run the validation worker (disabled unless explicitly enabled)
-	$(GO) run $(CMD_DIR)/worker
-
 .PHONY: media-worker build-media-worker
-media-worker: ## Run preparation worker (disabled unless explicitly enabled)
+media-worker: ## Run the combined media worker (disabled unless explicitly enabled)
 	$(GO) run $(CMD_DIR)/media-worker
 
-build-media-worker: ## Build the separate preparation worker
+build-media-worker: ## Build the combined media worker
 	@mkdir -p $(BIN_DIR)
 	CGO_ENABLED=0 $(GO) build $(BUILD_FLAGS) -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/media-worker $(CMD_DIR)/media-worker
 
