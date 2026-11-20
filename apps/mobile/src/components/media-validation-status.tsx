@@ -7,6 +7,7 @@ import { ActionButton, AppText, StatusBadge, Surface } from "@/design-system";
 import { configuredUploadApi } from "@/lib/api/mobile-client";
 import { mediaStatusCopy } from "@/lib/uploads/media-status-copy";
 import { createMediaStatusPoller } from "@/lib/uploads/media-status-poller";
+import { MediaPreparationStatus } from "./media-preparation-status";
 
 export function MediaValidationStatus({ assetId }: { assetId: string }) {
   const { getToken, isSignedIn, sessionId } = useAuth();
@@ -60,48 +61,56 @@ function ValidationStatusCard({
 
   const copy = mediaStatusCopy(snapshot.status);
   return (
-    <Surface>
-      <AppText variant="heading" accessibilityRole="header">
-        Video validation
-      </AppText>
-      <StatusBadge
-        label={copy.title}
-        tone={
-          snapshot.status?.status === "ready"
-            ? "success"
-            : snapshot.status?.status === "rejected" ||
-                snapshot.status?.status === "validation_failed"
-              ? "danger"
-              : "secondary"
-        }
-      />
-      <AppText accessibilityLiveRegion="polite">{copy.detail}</AppText>
-      <AppText variant="caption" tone="secondary">
-        {snapshot.status
-          ? `Validation attempts: ${snapshot.status.attempts} / 4`
-          : "Validation attempts: not checked"}
-      </AppText>
-      {snapshot.stale && (
-        <AppText variant="caption">
-          Last known status · may be out of date
+    <>
+      <Surface>
+        <AppText variant="heading" accessibilityRole="header">
+          Video validation
         </AppText>
-      )}
-      {snapshot.error && (
-        <AppText variant="caption" accessibilityLiveRegion="polite">
-          Status check problem: {snapshot.error} Your upload is still complete.
+        <StatusBadge
+          label={copy.title}
+          tone={
+            snapshot.status?.status === "ready"
+              ? "success"
+              : snapshot.status?.status === "rejected" ||
+                  snapshot.status?.status === "validation_failed"
+                ? "danger"
+                : "secondary"
+          }
+        />
+        <AppText accessibilityLiveRegion="polite">{copy.detail}</AppText>
+        <AppText variant="caption" tone="secondary">
+          {snapshot.status
+            ? `Validation attempts: ${snapshot.status.attempts} / 4`
+            : "Validation attempts: not checked"}
         </AppText>
-      )}
-      <ActionButton
-        label="Check status"
-        variant="secondary"
-        busy={snapshot.checking}
-        busyLabel="Checking status…"
-        disabled={snapshot.authenticationRequired}
-        onPress={poller.check}
-      />
-      <AppText variant="caption" tone="secondary">
-        Checks only read status; they never restart validation or upload again.
-      </AppText>
-    </Surface>
+        {snapshot.stale && (
+          <AppText variant="caption">
+            Last known status · may be out of date
+          </AppText>
+        )}
+        {snapshot.error && (
+          <AppText variant="caption" accessibilityLiveRegion="polite">
+            Status check problem: {snapshot.error} Your upload is still
+            complete.
+          </AppText>
+        )}
+        <ActionButton
+          label="Check status"
+          variant="secondary"
+          busy={snapshot.checking}
+          busyLabel="Checking status…"
+          disabled={snapshot.authenticationRequired}
+          onPress={poller.check}
+        />
+        <AppText variant="caption" tone="secondary">
+          Checks only read status; they never restart validation or upload
+          again.
+        </AppText>
+      </Surface>
+      {snapshot.status?.status === "ready" &&
+        !snapshot.authenticationRequired && (
+          <MediaPreparationStatus assetId={assetId} getToken={getToken} />
+        )}
+    </>
   );
 }

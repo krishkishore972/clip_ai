@@ -7,6 +7,7 @@ import (
 
 	"github.com/hibiken/asynq"
 	"github.com/krishkishore972/clip_ai/internal/config"
+	"github.com/krishkishore972/clip_ai/internal/preparation"
 )
 
 // ValidationWorkerConfig consumes only validation tasks. The durable handler
@@ -26,6 +27,14 @@ func ValidationWorkerConfig(logger *slog.Logger) asynq.Config {
 		Logger:          validationQueueLogger{logger: logger},
 		LogLevel:        asynq.DebugLevel,
 	}
+}
+
+// ProcessWorkerConfig consumes the combined validation and preparation task.
+func ProcessWorkerConfig(logger *slog.Logger) asynq.Config {
+	cfg := ValidationWorkerConfig(logger)
+	cfg.Queues = map[string]int{ProcessQueue: 1, ValidationQueue: 1, preparation.Queue: 1}
+	cfg.RetryDelayFunc = func(_ int, _ error, _ *asynq.Task) time.Duration { return time.Minute }
+	return cfg
 }
 
 // NewValidationInspector bounds individual background-context inspection

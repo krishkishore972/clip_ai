@@ -172,6 +172,9 @@ func testIdentityAndOwnership(t *testing.T, ctx context.Context, pool *sql.DB, p
 	t.Run("owned media status", func(t *testing.T) {
 		testMediaStatus(t, ctx, pool)
 	})
+	t.Run("preparation persistence", func(t *testing.T) {
+		testPreparationStore(t, ctx, pool, provider)
+	})
 }
 
 func testDirectOwnershipMigration(t *testing.T, ctx context.Context, pool *sql.DB, provider *goose.Provider) {

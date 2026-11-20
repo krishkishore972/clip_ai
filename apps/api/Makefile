@@ -57,6 +57,14 @@ dispatcher: ## Run the outbox dispatcher (disabled unless explicitly enabled)
 worker: ## Run the validation worker (disabled unless explicitly enabled)
 	$(GO) run $(CMD_DIR)/worker
 
+.PHONY: media-worker build-media-worker
+media-worker: ## Run preparation worker (disabled unless explicitly enabled)
+	$(GO) run $(CMD_DIR)/media-worker
+
+build-media-worker: ## Build the separate preparation worker
+	@mkdir -p $(BIN_DIR)
+	CGO_ENABLED=0 $(GO) build $(BUILD_FLAGS) -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/media-worker $(CMD_DIR)/media-worker
+
 ## ---- quality --------------------------------------------------------
 
 # Migrations are explicit, never part of server startup. DATABASE_URL is

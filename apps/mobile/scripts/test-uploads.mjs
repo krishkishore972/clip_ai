@@ -41,6 +41,9 @@ try {
         join(root, "auth/expo-go-callback.ts"),
         join(root, "uploads/media-status-poller.ts"),
         join(root, "uploads/media-status-copy.ts"),
+        join(root, "api/preparation.ts"),
+        join(root, "uploads/preparation-poller.ts"),
+        join(root, "uploads/preparation-copy.ts"),
       ],
     }),
   );
@@ -58,6 +61,7 @@ try {
         new URL("../tests/expo-go-callback.test.cjs", import.meta.url),
       ),
       fileURLToPath(new URL("../tests/media-status.test.cjs", import.meta.url)),
+      fileURLToPath(new URL("../tests/preparation.test.cjs", import.meta.url)),
     ],
     {
       stdio: "inherit",

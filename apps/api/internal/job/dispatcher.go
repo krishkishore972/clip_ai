@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/hibiken/asynq"
+	"github.com/krishkishore972/clip_ai/internal/preparation"
 )
 
 var ErrOutboxDatabase = errors.New("outbox database operation failed")
@@ -107,8 +108,15 @@ func (d *Dispatcher) DispatchOne(ctx context.Context) (DispatchResult, error) {
 	result := DispatchResult{EventID: eventID, Attempts: attempts + 1}
 	enqueueCtx, stopEnqueue := context.WithTimeout(txCtx, d.options.EnqueueTimeout)
 	opts := []asynq.Option{asynq.Queue(queue), asynq.TaskID(eventID)}
-	if taskType == ValidationTaskType {
-		opts = append(opts, asynq.MaxRetry(ValidationMaxRetry), asynq.Timeout(20*time.Minute))
+	switch taskType {
+	case ValidationTaskType:
+		// The combined process worker may consume the initial validation event
+		// and continue through FFmpeg audio extraction.
+		opts = append(opts, asynq.MaxRetry(ValidationMaxRetry), asynq.Timeout(90*time.Minute))
+	case ProcessTaskType:
+		opts = append(opts, asynq.MaxRetry(ProcessMaxRetry), asynq.Timeout(90*time.Minute))
+	case preparation.TaskType:
+		opts = append(opts, asynq.MaxRetry(ProcessMaxRetry), asynq.Timeout(90*time.Minute))
 	}
 	_, enqueueErr := d.client.EnqueueContext(enqueueCtx, asynq.NewTask(taskType, payload), opts...)
 	enqueueDeadline := enqueueCtx.Err()

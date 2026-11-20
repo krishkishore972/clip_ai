@@ -19,6 +19,7 @@ import (
 	"github.com/krishkishore972/clip_ai/internal/handler"
 	"github.com/krishkishore972/clip_ai/internal/httpserver"
 	"github.com/krishkishore972/clip_ai/internal/media"
+	"github.com/krishkishore972/clip_ai/internal/preparation"
 	"github.com/krishkishore972/clip_ai/internal/storage"
 	"github.com/krishkishore972/clip_ai/internal/upload"
 )
@@ -49,7 +50,12 @@ func Serve(cfg config.Config, logger *slog.Logger, version string) error {
 	if uploads != nil {
 		logger.Warn("development S3 uploads enabled; validation requires the separately enabled worker")
 	}
-	srv := httpserver.NewServer(cfg, NewHandler(logger, cfg.Env, uploads, media.SQLStatusReader{DB: database}, requireAuth))
+	preparationEnabled, err := config.LoadPreparationEnabled()
+	if err != nil {
+		return err
+	}
+	preparations := handler.NewMediaPreparationHandler(preparation.SQLStore{DB: database}, preparationEnabled, logger)
+	srv := httpserver.NewServer(cfg, NewHandlerWithPreparation(logger, cfg.Env, uploads, media.SQLStatusReader{DB: database}, preparations, requireAuth))
 
 	return run(srv, cfg.ShutdownTimeout, logger, version)
 }
@@ -73,10 +79,20 @@ func NewDevelopmentUploads(ctx context.Context, env string, assets upload.AssetR
 
 // NewHandler composes public and authenticated routes, failing closed without auth.
 func NewHandler(logger *slog.Logger, env string, uploads handler.MultipartUploadService, statuses handler.MediaStatusReader, authMiddleware ...func(http.Handler) http.Handler) http.Handler {
+	return NewHandlerWithPreparation(logger, env, uploads, statuses, nil, authMiddleware...)
+}
+
+// NewHandlerWithPreparation adds private preparation routes while retaining the
+// existing fail-closed authentication and development-only upload boundary.
+func NewHandlerWithPreparation(logger *slog.Logger, env string, uploads handler.MultipartUploadService, statuses handler.MediaStatusReader, preparations *handler.MediaPreparationHandler, authMiddleware ...func(http.Handler) http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	protected := http.NewServeMux()
 	protected.HandleFunc("GET /me", auth.Me)
 	handler.NewMediaStatusHandler(statuses, logger).Register(protected)
+	if preparations == nil {
+		preparations = handler.NewMediaPreparationHandler(nil, false, logger)
+	}
+	preparations.Register(protected)
 
 	mux.HandleFunc("GET /healthz", health)
 	// Keep uploads development-only until media validation and release hardening

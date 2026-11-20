@@ -36,7 +36,7 @@ const validationStates: readonly MediaValidationState[] = [
 ];
 
 // Require a real RFC3339 calendar timestamp, not Date.parse's normalized dates.
-function validTimestamp(value: unknown): value is string {
+export function validTimestamp(value: unknown): value is string {
   if (typeof value !== "string") return false;
   const match =
     /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2})$/.exec(

@@ -1,0 +1,15 @@
+package main
+
+import (
+	"fmt"
+	"os"
+
+	"github.com/krishkishore972/clip_ai/internal/app/mediaworker"
+)
+
+func main() {
+	if err := mediaworker.Run(); err != nil {
+		fmt.Fprintln(os.Stderr, "media worker startup or shutdown failed")
+		os.Exit(1)
+	}
+}

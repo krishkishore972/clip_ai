@@ -1,8 +1,8 @@
 # Chorus Clip
 
-A mobile-first video application with a Go API and a private upload/validation pipeline. This repository also retains a separate Next.js web starter; it is not the native mobile application.
+A mobile-first video application with a Go API and a private upload, validation and media-preparation pipeline. This repository also retains a separate Next.js web starter; it is not the native mobile application.
 
-**Last reviewed:** 2026-11-19. **Evidence:** [V] verified from source, automated checks and the developer's real-device logs/UI confirmation; [U] explicitly unverified behavior. These tags describe the evidence, not a production-readiness guarantee.
+**Last reviewed:** 2026-11-20. **Evidence:** [V] verified from source, automated checks and the developer's real-device logs/UI confirmation; [U] explicitly unverified behavior. These tags describe the evidence, not a production-readiness guarantee.
 
 ## Current scope
 
@@ -14,10 +14,12 @@ A mobile-first video application with a Go API and a private upload/validation p
 - Atomic PostgreSQL asset/outbox persistence, a separate row-lock-based dispatcher and Redis/Asynq processing.
 - A validation worker that downloads the original to private temporary storage, probes it with `go-ffprobe`/FFprobe and leaves the S3 original unchanged.
 - Owner-only `GET /media/{assetId}/status` and foreground/focus-aware mobile status polling.
+- Opt-in automatic preparation after successful validation: a 16 kHz mono PCM WAV derivative for ASR, with independent durable state, queue and worker. Originals remain unchanged.
+- Validation-ready and preparation-ready are checked separately; preparation does not expose media playback or storage URLs.
 
 [V] A real-device upload reached `ready` on its first validation attempt, and the mobile client displayed **Validation passed — 1 / 4**. Backend race/integration checks, vet/build, mobile type-check/lint and offline tests passed during the implementation work.
 
-[U] Live rejection, transient-failure retry and worker-crash recovery scenarios have not yet been verified end to end. Persistent media browsing, playback, media preparation, transcription, AI clip suggestions, editing, captions, rendering and secure downloads are not implemented. `ready` means validation passed, not that a playable video or clips exist.
+[U] Live rejection, transient-failure retry and worker-crash recovery checks are deferred at the user's request. New preparation code is not yet verified against the application DB or real S3; migration 00006 has not been applied there and preparation defaults disabled. Persistent media browsing, projects, transcription, AI clip suggestions, editing, captions, rendering and secure export downloads remain unimplemented.
 
 ### Validation policy
 
@@ -133,6 +135,28 @@ It serves at `http://localhost:3000`. The root `pnpm dev` script runs registered
 
 Stop each foreground process with Ctrl+C and allow the worker to finish its shutdown. Do not flush Redis or remove database rows to reset a test.
 
+## Media preparation
+
+The new media-processing feature requires separately approved migration **00006**. Do not enable it before applying the reviewed migration to the intended database. New completed uploads enqueue one combined processing job when `MEDIA_PREPARATION_ENABLED=true`; the job validates the original and extracts audio from the same download. Existing ready uploads are not automatically backfilled. The current-upload card offers an explicit **Prepare media** action only when a preparation record is missing. It cannot reset failed attempts or restart terminal work.
+
+After the migration is approved/applied, opt in explicitly in separate terminals:
+
+```bash
+cd apps/api
+# API: uploads remain development-only.
+make run DEV_S3_UPLOAD_ENABLED=true MEDIA_PREPARATION_ENABLED=true
+# Combined processing worker: downloads each original once, validates it and extracts audio.
+make media-worker MEDIA_PREPARATION_ENABLED=true MEDIA_PREPARATION_WORKER_ENABLED=true
+# Dispatcher: deliver media-processing events.
+make dispatcher OUTBOX_DISPATCH_ENABLED=true
+```
+
+Preparation concurrency is one per process, with two FFmpeg codec threads, a 90-minute task budget and at most two durable attempts. FFmpeg and FFprobe must be installed; the private preparation temporary root must be separate from validation and have at least 8 GiB free at startup. Normalized WAV files are capped at 240 MB. CPU/thread/deadline limits are not a full OS sandbox or memory/disk quota; deployment isolation remains a release requirement.
+
+Grant the preparation role only the required original reads and conditional writes under the private derived prefix `dev-uploads/<assetId>/derived/v1/`. Do not grant public access or original-object deletion/overwrite rights. Output namespaces are immutable and unrelated to DB fencing tokens. Private unpublished derivatives can remain after ambiguous failures; a safe orphan-retention policy is still needed before release.
+
+The owner-authorized preparation/status routes do not expose storage locations. The normalized audio is internal to the processing pipeline and is not signed or returned to the mobile client.
+
 ## Checks and generated contracts
 
 From the repository root:
@@ -171,6 +195,8 @@ pnpm --filter mobile gen:api
 node apps/mobile/scripts/generate-api-types.mjs --check
 ```
 
+The contract is JSON-compatible YAML because the generator and drift guards use JSON parsing. When formatting it, explicitly use `pnpm exec prettier --parser json --write apps/api/openapi/openapi.yaml`, not the YAML printer.
+
 ## Next verification
 
-[I] Test an intentionally invalid video, then controlled network/retry/recovery failures. Confirm that validation rejection/failure is shown separately from completed upload status, with no automatic reupload. This is the next verification step, not a claim that the broader editing application is complete.
+[I] The user deferred live invalid-video/network/retry/crash checks; they remain release gaps, not verified behavior. New preparation needs separately approved migration/IAM/service setup. The next implementation milestone is a reviewed canonical project model and basic clip rendering from immutable originals, followed by separately selected transcription/AI providers. The broader editing application and its phase exits are not complete.

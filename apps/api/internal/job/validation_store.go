@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/krishkishore972/clip_ai/internal/media"
+	"github.com/krishkishore972/clip_ai/internal/preparation"
 )
 
 const (
@@ -47,7 +48,10 @@ type ValidationStore interface {
 	Recover(context.Context, int) (int, error)
 }
 
-type SQLValidationStore struct{ DB *sql.DB }
+type SQLValidationStore struct {
+	DB               *sql.DB
+	PrepareValidated bool
+}
 
 // Claim locks only while reading and updating durable execution state. Object
 // downloads and probing must happen after this transaction has committed.
@@ -249,6 +253,11 @@ func (s SQLValidationStore) Finish(ctx context.Context, asset ValidationAsset, o
 	}
 	if rows == 0 {
 		return ErrValidationStale
+	}
+	if outcome.Status == "ready" && s.PrepareValidated {
+		if err := preparation.InsertPending(finishCtx, tx, asset.ID); err != nil {
+			return validationDBError(ctx, finishCtx)
+		}
 	}
 	if outcome.Status == "uploaded_unvalidated" {
 		// Asynq may have requeued and acknowledged a busy duplicate before a

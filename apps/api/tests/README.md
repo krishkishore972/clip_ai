@@ -1,22 +1,23 @@
 # API tests
 
-**Last verified:** 2026-11-19. [V] All Go test source files are centralized here, grouped by the application/package they exercise. Tests use imported production APIs rather than private package access. Production code remains in the command, internal and migrations directories; test fixtures and assertions remain in this directory.
+**Last verified:** 2026-11-20. [V] All Go test source files are centralized here, grouped by the application/package they exercise. Tests use imported production APIs rather than private package access. Production code remains in the command, internal and migrations directories; test fixtures and assertions remain in this directory.
 
 ## Layout
 
-| Directory                 | Coverage                                                                                                        |
-| ------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| [apps](apps/)             | Importable server, dispatcher, worker and migration application behavior. CLI entrypoints remain thin wrappers. |
-| [auth](auth/)             | Clerk token validation, identity and ownership context.                                                         |
-| [config](config/)         | HTTP, auth, storage, queue and worker configuration validation.                                                 |
-| [db](db/)                 | Pool behavior and opt-in PostgreSQL connectivity.                                                               |
-| [handler](handler/)       | Upload/status HTTP boundaries and OpenAPI drift guards.                                                         |
-| [httpserver](httpserver/) | Middleware, request IDs, JSON/error handling and recovery.                                                      |
-| [job](job/)               | Producer policy, dispatch, claims, retries, worker behavior and temporary-file safety.                          |
-| [media](media/)           | Media limits, metadata validation, local probing and public status projection.                                  |
-| [migrations](migrations/) | Embedded migration/schema constraints, owned persistence and opt-in PostgreSQL/Redis pipeline tests.            |
-| [storage](storage/)       | Bounded downloads and multipart S3 SDK adapters using offline doubles.                                          |
-| [upload](upload/)         | Authenticated upload lifecycle and signed-capability boundaries.                                                |
+| Directory                   | Coverage                                                                                                        |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| [apps](apps/)               | Importable server, dispatcher, worker and migration application behavior. CLI entrypoints remain thin wrappers. |
+| [auth](auth/)               | Clerk token validation, identity and ownership context.                                                         |
+| [config](config/)           | HTTP, auth, storage, queue and worker configuration validation.                                                 |
+| [db](db/)                   | Pool behavior and opt-in PostgreSQL connectivity.                                                               |
+| [handler](handler/)         | Upload/status HTTP boundaries and OpenAPI drift guards.                                                         |
+| [httpserver](httpserver/)   | Middleware, request IDs, JSON/error handling and recovery.                                                      |
+| [job](job/)                 | Producer policy, dispatch, claims, retries, worker behavior and temporary-file safety.                          |
+| [media](media/)             | Media limits, metadata validation, local probing and public status projection.                                  |
+| [migrations](migrations/)   | Embedded migration/schema constraints, owned persistence and opt-in PostgreSQL/Redis pipeline tests.            |
+| [preparation](preparation/) | Durable preparation projections, safe public metadata and bounded database reads.                               |
+| [storage](storage/)         | Bounded downloads and derived S3 SDK adapters using offline doubles.       |
+| [upload](upload/)           | Authenticated upload lifecycle and signed-capability boundaries.                                                |
 
 Keep new `*_test.go` files in these directories, not beside production files. Do not copy production implementations into tests, use linker tricks/overlays to reach private functions, or remove assertions merely to move a test. Reuse the public domain APIs or real dependency-injection boundaries in the internal packages. Tests are deliberately outside the production package even where private helpers were previously tested directly.
 
@@ -39,7 +40,7 @@ go test ./tests/media ./tests/upload -count=1
 go test ./tests/apps/... -count=1
 ```
 
-FFprobe must be on `PATH` to execute the local probe fixtures rather than skip them. Ordinary storage/upload tests use offline doubles; they do not upload videos to AWS.
+FFmpeg and FFprobe must be on `PATH` to execute the real local media fixtures rather than skip them. Preparation fixtures cover landscape/portrait/rotation, VFR, sample aspect ratio, shifted timelines, delayed audio, true HDR rejection, intact-header damaged media and original-hash preservation. A joined handler test uses the production encoder, not an encoding double. Ordinary storage/upload tests use offline doubles; they do not upload videos to AWS.
 
 ## Coverage
 

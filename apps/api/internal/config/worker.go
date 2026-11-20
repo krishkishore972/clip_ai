@@ -13,16 +13,22 @@ import (
 // ValidationWorker contains process configuration, not tunable validation policy.
 // DatabaseURL is secret and must never be logged.
 type ValidationWorker struct {
-	Enabled     bool
-	DatabaseURL string
-	LogLevel    slog.Level
-	Region      string
-	Bucket      string
-	TempDir     string
+	PreparationEnabled bool
+	Enabled            bool
+	DatabaseURL        string
+	LogLevel           slog.Level
+	Region             string
+	Bucket             string
+	TempDir            string
 }
 
 func LoadValidationWorker() (ValidationWorker, error) {
 	var cfg ValidationWorker
+	var featureErr error
+	cfg.PreparationEnabled, featureErr = LoadPreparationEnabled()
+	if featureErr != nil {
+		return ValidationWorker{}, featureErr
+	}
 	raw, err := required("VALIDATION_WORKER_ENABLED")
 	if err != nil {
 		return cfg, err

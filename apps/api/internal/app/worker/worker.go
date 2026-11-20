@@ -16,6 +16,7 @@ import (
 	"github.com/krishkishore972/clip_ai/internal/config"
 	"github.com/krishkishore972/clip_ai/internal/db"
 	"github.com/krishkishore972/clip_ai/internal/job"
+	"github.com/krishkishore972/clip_ai/internal/preparation"
 	"github.com/krishkishore972/clip_ai/internal/storage"
 )
 
@@ -60,12 +61,18 @@ func Run() error {
 		return err
 	}
 
+	if cfg.PreparationEnabled {
+		if err := preparation.CheckSchema(startupCtx, database); err != nil {
+			return errors.New("validation worker preparation schema unavailable; apply approved migrations separately")
+		}
+	}
+
 	downloader, err := storage.NewDownloader(startupCtx, cfg.Region, cfg.Bucket)
 	if err != nil {
 		return errors.New("validation worker storage initialization failed")
 	}
 
-	store := job.SQLValidationStore{DB: database}
+	store := job.SQLValidationStore{DB: database, PrepareValidated: cfg.PreparationEnabled}
 	handler, err := job.NewValidationHandler(store, downloader, job.ValidationOptions{
 		Bucket:          cfg.Bucket,
 		TempDir:         cfg.TempDir,

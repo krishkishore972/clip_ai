@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Video AI API",
-    "version": "0.5.0",
+    "version": "0.6.0",
     "description": "Authenticated personal-only mobile API. Clerk session bearer tokens resolve PostgreSQL users; assets belong directly to users. Upload routes remain development-only and require DEV_S3_UPLOAD_ENABLED=true for storage. V3 Upload-Token capabilities additionally bind user ownership; legacy v1/v2 tokens are rejected. Verified completed uploads are persisted with uploaded_unvalidated status. Each create starts a new upload; no create deduplication guarantee. No video bytes are accepted here. Never send authentication headers to S3."
   },
   "security": [{ "ClerkSession": [] }],
@@ -46,12 +46,76 @@
             },
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/MediaAssetStatus" }
+                "schema": {
+                  "$ref": "#/components/schemas/MediaAssetStatus"
+                }
               }
             }
           },
           "401": { "$ref": "#/components/responses/Error" },
           "404": { "$ref": "#/components/responses/Error" },
+          "503": { "$ref": "#/components/responses/Error" },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/media/{assetId}/preparation": {
+      "parameters": [
+        {
+          "name": "assetId",
+          "in": "path",
+          "required": true,
+          "schema": { "$ref": "#/components/schemas/Token" }
+        }
+      ],
+      "get": {
+        "operationId": "getMediaPreparation",
+        "description": "Read the authenticated owner's preparation status without enqueueing work. Preparation is separate from validation. Missing, cross-user and NULL-owned assets return identical 404. No storage locations, claim identifiers or URLs are returned. Every response is no-store.",
+        "responses": {
+          "200": {
+            "description": "Owned preparation status",
+            "headers": {
+              "Cache-Control": {
+                "schema": { "type": "string", "const": "no-store" }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaPreparationStatus"
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "503": { "$ref": "#/components/responses/Error" },
+          "default": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "post": {
+        "operationId": "ensureMediaPreparation",
+        "description": "Owner-authorized idempotent preparation for an older validation-ready upload without a preparation record. Accepts no body or Upload-Token. Requires MEDIA_PREPARATION_ENABLED. The combined media-processing worker consumes the resulting event. Existing pending, preparing, ready or failed records are returned unchanged; this operation never resets attempts or retries a terminal record. Every response is no-store.",
+        "responses": {
+          "202": {
+            "description": "Current preparation record, newly created or existing",
+            "headers": {
+              "Cache-Control": {
+                "schema": { "type": "string", "const": "no-store" }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaPreparationStatus"
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" },
           "503": { "$ref": "#/components/responses/Error" },
           "default": { "$ref": "#/components/responses/Error" }
         }
@@ -65,7 +129,9 @@
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/CreateUploadRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/CreateUploadRequest"
+              }
             }
           }
         },
@@ -132,7 +198,9 @@
             },
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/SignedUploadParts" }
+                "schema": {
+                  "$ref": "#/components/schemas/SignedUploadParts"
+                }
               }
             }
           },
@@ -152,7 +220,9 @@
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/CompleteUploadRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/CompleteUploadRequest"
+              }
             }
           }
         },
@@ -217,6 +287,34 @@
       }
     },
     "schemas": {
+      "MediaPreparationState": {
+        "type": "string",
+        "enum": ["not_prepared", "pending", "preparing", "ready", "failed"]
+      },
+      "MediaPreparationStatus": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "assetId",
+          "status",
+          "attempts",
+          "failureCode",
+          "updatedAt",
+          "preparedAt"
+        ],
+        "properties": {
+          "assetId": { "$ref": "#/components/schemas/Token" },
+          "status": { "$ref": "#/components/schemas/MediaPreparationState" },
+          "attempts": { "type": "integer", "minimum": 0, "maximum": 2 },
+          "failureCode": {
+            "type": ["string", "null"],
+            "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
+            "description": "Allowlisted safe preparation code, or null. Unknown stored text is replaced by PREPARATION_FAILED. Ready has null."
+          },
+          "updatedAt": { "type": "string", "format": "date-time" },
+          "preparedAt": { "type": ["string", "null"], "format": "date-time" }
+        }
+      },
       "Me": {
         "type": "object",
         "additionalProperties": false,

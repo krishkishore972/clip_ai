@@ -2,7 +2,7 @@
 
 Expo SDK 58 / React Native application for private video uploads and validation status, with Clerk sign-in and branded Home, Upload and Account screens. The separate Next.js web starter is retained; this native client is the current product path.
 
-**Last reviewed:** 2026-11-19. **Evidence:** [V] source/automated checks or the developer's real-device logs and UI confirmation; [U] unverified behavior. This is a development slice, not a production-ready editor.
+**Last reviewed:** 2026-11-20. **Evidence:** [V] source/automated checks or the developer's real-device logs and UI confirmation; [U] unverified behavior. This is a development slice, not a production-ready editor.
 
 ## What works
 
@@ -16,7 +16,7 @@ Clerk sign-in → private multipart S3 upload → PostgreSQL/outbox
 
 Uploads show confirmed-part progress and support best-effort cancellation. They require the foreground; automatic upload retries, background transfer and resume are intentionally excluded. Validation status is read separately, so a failed status check does not turn a completed upload into an upload failure or start another upload.
 
-[U] Live invalid-video rejection, transient-failure retry and worker-crash recovery scenarios remain to be verified. A persistent asset library, playback, transcription, generated clips, editing, captions and export are not implemented. Validation passing does not mean playback or clips are available.
+[V] The new current-upload preparation card reads separate preparation status. [U] Preparation is not yet device/S3-verified, and backend migration 00006 has not been applied to the application database. Live invalid-video/recovery checks are deferred by user request. A persistent asset library, projects, transcription, generated clips, editing, captions and export remain unimplemented.
 
 ## Install and configure
 
@@ -90,6 +90,14 @@ The current status card polls sequentially, approximately five seconds after eac
 Keep the upload screen mounted during observation: the current completed asset ID is component state, not a persistent asset library. Selecting another video or remounting the screen does not restore the previous card.
 
 If testing upload cancellation, use a disposable test video and remember that cleanup is best-effort. Do not interpret cancellation as proof that all remote parts were removed; the bucket's incomplete-upload lifecycle rule is the backstop.
+
+## Preparation
+
+After validation passes, the current-upload screen reads the separate preparation state. New uploads prepare automatically only when the backend feature is explicitly enabled. For an older ready upload with no record, **Prepare media** creates the missing preparation once; it does not retry a failed record or reset its two-attempt budget. Errors here never repeat or undo the upload.
+
+See the [backend preparation setup](../../README.md#media-preparation) before enabling the feature: it needs separately approved migration 00006, feature-enabled API/validation processes, a separate preparation worker, dispatcher, FFmpeg/FFprobe and derived-prefix IAM permissions. Preparation defaults disabled; the existing application DB has not been migrated by this implementation.
+
+Preparation produces an internal 16 kHz mono PCM WAV for the later transcription stage. It does not create a playback file or expose a media URL. Original media remains unchanged.
 
 ## Checks and contracts
 

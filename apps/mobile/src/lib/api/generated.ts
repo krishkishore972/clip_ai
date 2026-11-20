@@ -1,6 +1,17 @@
 // Generated from apps/api/openapi/openapi.yaml. Do not edit.
 // Regenerate: pnpm --filter mobile gen:api
 
+export type MediaPreparationState = "not_prepared" | "pending" | "preparing" | "ready" | "failed";
+
+export type MediaPreparationStatus = {
+  "assetId": Token;
+  "status": MediaPreparationState;
+  "attempts": number;
+  "failureCode": string | null;
+  "updatedAt": string;
+  "preparedAt": string | null;
+};
+
 export type Me = {
   "userId": string;
 };
