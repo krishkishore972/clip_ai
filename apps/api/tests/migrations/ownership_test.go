@@ -164,6 +164,15 @@ func testIdentityAndOwnership(t *testing.T, ctx context.Context, pool *sql.DB, p
 		testOutboxDispatcher(t, ctx, pool)
 	})
 	t.Run("owned media status", func(t *testing.T) {
+		// Earlier checks intentionally exercise schema version 4. Status reads
+		// require the validation columns introduced by migration 5.
+		results, err := provider.UpTo(ctx, 5)
+		if err != nil || len(results) != 1 || results[0].Source.Version != 5 {
+			t.Fatalf("validation status fixture migration 5 Up: results=%v error=%v", results, err)
+		}
+		if results, err := provider.UpTo(ctx, 5); err != nil || len(results) != 0 {
+			t.Fatalf("repeat validation status fixture Up should be a no-op: results=%v error=%v", results, err)
+		}
 		testMediaStatus(t, ctx, pool)
 	})
 }
