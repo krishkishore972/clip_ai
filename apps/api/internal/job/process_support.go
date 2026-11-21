@@ -92,16 +92,20 @@ func hashPreparationFile(ctx context.Context, path string, size int64, root stri
 }
 
 func validStoredMetadata(m *media.Metadata) bool {
-	if m == nil || m.DurationMs <= 0 || len(m.Video) == 0 || len(m.Audio) == 0 {
+	if m == nil || m.SizeBytes <= 0 || m.SizeBytes > media.MaxFileBytes ||
+		m.DurationMs <= 0 || m.DurationMs > media.MaxDurationSeconds*1000 ||
+		len(m.Video) == 0 || len(m.Audio) == 0 {
 		return false
 	}
 	for _, v := range m.Video {
-		if v.Width <= 0 || v.Height <= 0 || v.FPS.Num <= 0 || v.FPS.Den <= 0 || strings.TrimSpace(v.Codec) == "" {
+		if v.Index < 0 || v.Width <= 0 || v.Height <= 0 ||
+			v.FPS.Num <= 0 || v.FPS.Den <= 0 || strings.TrimSpace(v.Codec) == "" {
 			return false
 		}
 	}
 	for _, a := range m.Audio {
-		if strings.TrimSpace(a.Codec) == "" || a.SampleRate <= 0 || a.Channels <= 0 {
+		if a.Index < 0 || strings.TrimSpace(a.Codec) == "" ||
+			a.SampleRate <= 0 || a.Channels <= 0 {
 			return false
 		}
 	}

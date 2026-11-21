@@ -21,9 +21,13 @@ import (
 )
 
 type ProcessOptions struct {
-	Bucket, TempDir                                            string
-	DownloadTimeout, EncodeTimeout, UploadTimeout, TaskTimeout time.Duration
-	Prepare                                                    func(context.Context, string, string, time.Duration) (media.PreparedMedia, error)
+	Bucket          string
+	TempDir         string
+	DownloadTimeout time.Duration
+	EncodeTimeout   time.Duration
+	UploadTimeout   time.Duration
+	TaskTimeout     time.Duration
+	Prepare         func(context.Context, string, string, time.Duration) (media.PreparedMedia, error)
 }
 
 type ProcessHandler struct {
@@ -34,13 +38,15 @@ type ProcessHandler struct {
 	logger     *slog.Logger
 	serial     chan struct{}
 	active     sync.WaitGroup
-	closing    bool
 	cancel     context.CancelFunc
 	lifetime   context.Context
 }
 
 func NewProcessHandler(store ProcessStore, downloader VideoDownloader, uploader DerivedUploader, options ProcessOptions, logger *slog.Logger) (*ProcessHandler, error) {
-	if store == nil || downloader == nil || uploader == nil || logger == nil || options.Bucket == "" || options.DownloadTimeout <= 0 || options.EncodeTimeout <= 0 || options.UploadTimeout <= 0 || options.TaskTimeout <= options.DownloadTimeout+options.EncodeTimeout+options.UploadTimeout {
+	if store == nil || downloader == nil || uploader == nil || logger == nil ||
+		options.Bucket == "" || options.DownloadTimeout <= 0 ||
+		options.EncodeTimeout <= 0 || options.UploadTimeout <= 0 ||
+		options.TaskTimeout <= options.DownloadTimeout+options.EncodeTimeout+options.UploadTimeout {
 		return nil, errors.New("media process: invalid worker options")
 	}
 	root, err := prepareProcessRoot(options.TempDir)
@@ -52,7 +58,16 @@ func NewProcessHandler(store ProcessStore, downloader VideoDownloader, uploader 
 		options.Prepare = media.PrepareFile
 	}
 	lifetime, cancel := context.WithCancel(context.Background())
-	return &ProcessHandler{store: store, downloader: downloader, uploader: uploader, options: options, logger: logger, serial: make(chan struct{}, 1), lifetime: lifetime, cancel: cancel}, nil
+	return &ProcessHandler{
+		store:      store,
+		downloader: downloader,
+		uploader:   uploader,
+		options:    options,
+		logger:     logger,
+		serial:     make(chan struct{}, 1),
+		lifetime:   lifetime,
+		cancel:     cancel,
+	}, nil
 }
 
 func processAssetID(task *asynq.Task) (string, error) {

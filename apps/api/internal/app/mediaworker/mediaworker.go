@@ -73,7 +73,15 @@ func Run() error {
 	}
 
 	store := job.SQLProcessStore{DB: database}
-	handler, err := job.NewProcessHandler(store, downloader, uploader, job.ProcessOptions{Bucket: cfg.Bucket, TempDir: cfg.TempDir, DownloadTimeout: 15 * time.Minute, EncodeTimeout: 60 * time.Minute, UploadTimeout: 10 * time.Minute, TaskTimeout: 90 * time.Minute}, logger)
+	options := job.ProcessOptions{
+		Bucket:          cfg.Bucket,
+		TempDir:         cfg.TempDir,
+		DownloadTimeout: 15 * time.Minute,
+		EncodeTimeout:   60 * time.Minute,
+		UploadTimeout:   10 * time.Minute,
+		TaskTimeout:     90 * time.Minute,
+	}
+	handler, err := job.NewProcessHandler(store, downloader, uploader, options, logger)
 	if err != nil {
 		return fmt.Errorf("media process worker handler initialization failed: %w", err)
 	}

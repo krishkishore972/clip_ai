@@ -20,7 +20,8 @@ import (
 	"github.com/pressly/goose/v3"
 )
 
-func TestProcessClaimFreshUpload(t *testing.T) {
+func processTestDatabase(t *testing.T) (context.Context, *sql.DB) {
+	t.Helper()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("set TEST_DATABASE_URL to an isolated test database")
@@ -31,7 +32,7 @@ func TestProcessClaimFreshUpload(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = admin.Close() })
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
+	t.Cleanup(cancel)
 	var random [12]byte
 	if _, err := rand.Read(random[:]); err != nil {
 		t.Fatal(err)
@@ -66,6 +67,11 @@ func TestProcessClaimFreshUpload(t *testing.T) {
 	if _, err := provider.UpTo(ctx, 6); err != nil {
 		t.Fatal(err)
 	}
+	return ctx, pool
+}
+
+func TestProcessClaimFreshUpload(t *testing.T) {
+	ctx, pool := processTestDatabase(t)
 	principal, err := (auth.Store{DB: pool}).Resolve(ctx, "https://fixture.clerk.accounts.dev", "claim-user")
 	if err != nil {
 		t.Fatal(err)

@@ -1,11 +1,10 @@
-// Package preparation persists independent, fenced derivative preparation state.
+// Package preparation exposes owned preparation status and validates derivatives.
+// Worker state transitions are owned by the combined job.SQLProcessStore.
 package preparation
 
 import (
 	"errors"
 	"time"
-
-	"github.com/krishkishore972/clip_ai/internal/media"
 )
 
 const (
@@ -18,8 +17,6 @@ var (
 	ErrNotReady  = errors.New("preparation source or output not ready")
 	ErrDisabled  = errors.New("preparation disabled")
 	ErrDatabase  = errors.New("preparation database unavailable")
-	ErrBusy      = errors.New("preparation claim busy")
-	ErrStale     = errors.New("preparation claim stale")
 	ErrArguments = errors.New("invalid preparation arguments")
 )
 
@@ -32,31 +29,31 @@ type Status struct {
 	PreparedAt  *time.Time `json:"preparedAt"`
 }
 
-type Claim struct {
-	AssetID, Bucket, Key, Token, OutputID string
-	SizeBytes                             int64
-	Attempts                              int
-	Metadata                              media.Metadata
-}
-
 type Artifacts struct {
-	Bucket, AudioKey          string
-	AudioSHA256, SourceSHA256 string
-	AudioSizeBytes            int64
+	Bucket         string
+	AudioKey       string
+	AudioSHA256    string
+	SourceSHA256   string
+	AudioSizeBytes int64
 	// AudioStartMs is the source timestamp of WAV sample zero. It may be
 	// negative and must not be clamped.
 	AudioStartMs int64
 }
 
-type Outcome struct {
-	Status, Code string
-	Artifacts    *Artifacts
-}
-
 // SafeFailureCode never exposes arbitrary persisted text to API callers.
 func SafeFailureCode(code string) string {
 	switch code {
-	case "PREPARATION_INTERRUPTED", "PREPARATION_ATTEMPTS_EXHAUSTED", "PREPARATION_RETRIES_EXHAUSTED", "PREPARATION_DOWNLOAD_FAILED", "PREPARATION_ENCODE_FAILED", "PREPARATION_UPLOAD_FAILED", "PREPARATION_TIMEOUT", "PREPARATION_INVALID_OUTPUT", "PREPARATION_SOURCE_CHANGED", "PREPARATION_STORAGE_FAILED", "PREPARATION_DISK_SPACE":
+	case "PREPARATION_INTERRUPTED",
+		"PREPARATION_ATTEMPTS_EXHAUSTED",
+		"PREPARATION_RETRIES_EXHAUSTED",
+		"PREPARATION_DOWNLOAD_FAILED",
+		"PREPARATION_ENCODE_FAILED",
+		"PREPARATION_UPLOAD_FAILED",
+		"PREPARATION_TIMEOUT",
+		"PREPARATION_INVALID_OUTPUT",
+		"PREPARATION_SOURCE_CHANGED",
+		"PREPARATION_STORAGE_FAILED",
+		"PREPARATION_DISK_SPACE":
 		return code
 	default:
 		return "PREPARATION_FAILED"
