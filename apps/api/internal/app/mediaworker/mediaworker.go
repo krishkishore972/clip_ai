@@ -20,6 +20,7 @@ import (
 	"github.com/krishkishore972/clip_ai/internal/job"
 	"github.com/krishkishore972/clip_ai/internal/preparation"
 	"github.com/krishkishore972/clip_ai/internal/storage"
+	"github.com/krishkishore972/clip_ai/internal/transcription"
 )
 
 func Run() error {
@@ -33,6 +34,10 @@ func Run() error {
 	if !cfg.Enabled {
 		logger.Info("media process worker disabled")
 		return nil
+	}
+	transcriptionLanguage, err := config.LoadTranscriptLanguage()
+	if err != nil {
+		return err
 	}
 
 	redisConfig, err := config.LoadRedis()
@@ -61,6 +66,11 @@ func Run() error {
 	if err := CheckSchema(startup, database); err != nil {
 		return err
 	}
+	if transcriptionLanguage != "" {
+		if err := transcription.CheckFileSchema(startup, database); err != nil {
+			return errors.New("automatic transcription requires approved migration 00008")
+		}
+	}
 
 	downloader, err := storage.NewDownloader(startup, cfg.Region, cfg.Bucket)
 	if err != nil {
@@ -72,7 +82,7 @@ func Run() error {
 		return fmt.Errorf("media worker storage initialization failed: %w", err)
 	}
 
-	store := job.SQLProcessStore{DB: database}
+	store := job.SQLProcessStore{DB: database, TranscriptionLanguage: transcriptionLanguage}
 	options := job.ProcessOptions{
 		Bucket:          cfg.Bucket,
 		TempDir:         cfg.TempDir,

@@ -53,6 +53,10 @@ run: ## Run the API server (make run PORT=9090 overrides API_ADDR)
 dispatcher: ## Run the outbox dispatcher (disabled unless explicitly enabled)
 	$(GO) run $(CMD_DIR)/dispatcher
 
+.PHONY: transcription-worker
+transcription-worker: ## Run the S3 transcript worker (disabled unless explicitly enabled)
+	$(GO) run $(CMD_DIR)/transcription-worker
+
 .PHONY: media-worker build-media-worker
 media-worker: ## Run the combined media worker (disabled unless explicitly enabled)
 	$(GO) run $(CMD_DIR)/media-worker

@@ -88,3 +88,25 @@ func TestDerivedRealSDKOfflineCredentials(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestTranscriptUploadIsPrivateAndImmutable(t *testing.T) {
+	stub := &derivedPutStub{}
+	uploader, err := storage.NewDerivedUploaderWithClient(config.S3{Region: "offline", Bucket: "private"}, stub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "transcript.json")
+	if err := os.WriteFile(path, []byte(`{"schemaVersion":1}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := uploader.UploadDerived(context.Background(), "asset-id", "output-id", "transcript", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Key != "dev-uploads/asset-id/derived/v1/output-id/transcript.json" ||
+		aws.ToString(stub.input.ContentType) != "application/json" ||
+		aws.ToString(stub.input.IfNoneMatch) != "*" ||
+		aws.ToString(stub.input.CacheControl) != "no-store" || stub.input.ACL != "" {
+		t.Fatal("unsafe transcript object")
+	}
+}

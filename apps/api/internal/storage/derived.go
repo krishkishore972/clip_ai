@@ -73,6 +73,8 @@ func (u *DerivedUploader) UploadDerived(ctx context.Context, assetID, outputID, 
 	switch kind {
 	case "audio":
 		name, contentType, capBytes = "audio.wav", "audio/wav", 240_000_000
+	case "transcript":
+		name, contentType, capBytes = "transcript.json", "application/json", 16*1024*1024
 	default:
 		return result, ErrDerivedInput
 	}
@@ -119,7 +121,15 @@ func (u *DerivedUploader) UploadDerived(ctx context.Context, assetID, outputID, 
 	}
 	key := "dev-uploads/" + assetID + "/derived/v1/" + outputID + "/" + name
 	response, err := u.client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket: aws.String(u.bucket), Key: aws.String(key), Body: file, ContentLength: aws.Int64(size), ContentType: aws.String(contentType), CacheControl: aws.String("no-store"), IfNoneMatch: aws.String("*"), ChecksumAlgorithm: types.ChecksumAlgorithmSha256, ChecksumSHA256: aws.String(checksum),
+		Bucket:            aws.String(u.bucket),
+		Key:               aws.String(key),
+		Body:              file,
+		ContentLength:     aws.Int64(size),
+		ContentType:       aws.String(contentType),
+		CacheControl:      aws.String("no-store"),
+		IfNoneMatch:       aws.String("*"),
+		ChecksumAlgorithm: types.ChecksumAlgorithmSha256,
+		ChecksumSHA256:    aws.String(checksum),
 	}, func(options *s3.Options) { options.RetryMaxAttempts = 1 })
 	if err != nil {
 		if ctx.Err() != nil {

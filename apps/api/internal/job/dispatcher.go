@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/hibiken/asynq"
+	"github.com/krishkishore972/clip_ai/internal/transcription"
 )
 
 var ErrOutboxDatabase = errors.New("outbox database operation failed")
@@ -114,6 +115,8 @@ func (d *Dispatcher) DispatchOne(ctx context.Context) (DispatchResult, error) {
 		opts = append(opts, asynq.MaxRetry(ProcessMaxRetry), asynq.Timeout(90*time.Minute))
 	case ProcessTaskType:
 		opts = append(opts, asynq.MaxRetry(ProcessMaxRetry), asynq.Timeout(90*time.Minute))
+	case transcription.TaskType:
+		opts = append(opts, asynq.MaxRetry(1), asynq.Timeout(TranscriptionTaskTimeout))
 	}
 	_, enqueueErr := d.client.EnqueueContext(enqueueCtx, asynq.NewTask(taskType, payload), opts...)
 	enqueueDeadline := enqueueCtx.Err()

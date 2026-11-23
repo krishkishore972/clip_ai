@@ -56,7 +56,11 @@ type ProcessStore interface {
 // SQLProcessStore is the single writer of combined validation/preparation
 // attempt transitions. Preparation status reads and legacy ensure requests
 // remain in preparation.SQLStore.
-type SQLProcessStore struct{ DB *sql.DB }
+type SQLProcessStore struct {
+	DB *sql.DB
+	// Empty disables automatic transcription. Nonempty is snapshotted per job.
+	TranscriptionLanguage string
+}
 
 func processDBError(parent, operation context.Context) error {
 	if err := parent.Err(); err != nil {

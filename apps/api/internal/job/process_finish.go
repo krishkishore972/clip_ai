@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/krishkishore972/clip_ai/internal/preparation"
+	"github.com/krishkishore972/clip_ai/internal/transcription"
 )
 
 func validateProcessOutcome(asset ProcessAsset, outcome ProcessOutcome) error {
@@ -113,6 +114,11 @@ func (s SQLProcessStore) Finish(ctx context.Context, asset ProcessAsset, outcome
 	if outcome.AssetStatus == "ready" {
 		if err := saveReadyProcess(op, tx, asset, outcome); err != nil {
 			return err
+		}
+		if s.TranscriptionLanguage != "" {
+			if err := transcription.InsertFileJob(op, tx, asset.ID, s.TranscriptionLanguage); err != nil {
+				return err
+			}
 		}
 	} else {
 		if err := saveProcessFailure(op, tx, asset.ID, outcome.AssetStatus, outcome.Code); err != nil {
