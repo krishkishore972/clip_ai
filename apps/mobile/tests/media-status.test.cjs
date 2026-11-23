@@ -15,6 +15,7 @@ const status = (state = "uploaded_unvalidated") => ({
   assetId: "asset-1",
   status: state,
   attempts: 1,
+  maxAttempts: 2,
   failureCode: null,
   updatedAt: "2026-11-19T10:00:00Z",
   validatedAt: null,

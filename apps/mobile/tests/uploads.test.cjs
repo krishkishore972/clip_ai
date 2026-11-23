@@ -380,6 +380,7 @@ const mediaStatus = {
   assetId: "asset-1",
   status: "uploaded_unvalidated",
   attempts: 0,
+  maxAttempts: 2,
   failureCode: null,
   updatedAt: "2026-11-19T10:00:00Z",
   validatedAt: null,
@@ -428,6 +429,10 @@ test("media status fail-closed parser rejects unknown state, mismatched ID and m
     ...[-1, 5, 0.5, "1", null].map((attempts) => ({
       ...mediaStatus,
       attempts,
+    })),
+    ...[-1, 0, 3, 5, 0.5, "2", null, undefined].map((maxAttempts) => ({
+      ...mediaStatus,
+      maxAttempts,
     })),
     { ...mediaStatus, failureCode: undefined },
     { ...mediaStatus, failureCode: 1 },

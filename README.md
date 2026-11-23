@@ -2,7 +2,7 @@
 
 A mobile-first video application with a Go API and a private upload, validation and media-preparation pipeline. This repository also retains a separate Next.js web starter; it is not the native mobile application.
 
-**Last reviewed:** 2026-11-20. **Evidence:** [V] verified from source, automated checks and the developer's real-device logs/UI confirmation; [U] explicitly unverified behavior. These tags describe the evidence, not a production-readiness guarantee.
+**Last reviewed:** 2026-11-23. **Evidence:** [V] verified from source, automated checks, the configured development database and the developer's real-device logs/UI confirmation; [U] explicitly unverified behavior. These tags describe the evidence, not a production-readiness guarantee.
 
 ## Current scope
 
@@ -14,16 +14,16 @@ A mobile-first video application with a Go API and a private upload, validation 
 - Atomic PostgreSQL asset/outbox persistence, a separate row-lock-based dispatcher and Redis/Asynq processing.
 - A validation worker that downloads the original to private temporary storage, probes it with `go-ffprobe`/FFprobe and leaves the S3 original unchanged.
 - Owner-only `GET /media/{assetId}/status` and foreground/focus-aware mobile status polling.
-- Opt-in automatic preparation after successful validation: a 16 kHz mono PCM WAV derivative for ASR, with independent durable state, queue and worker. Originals remain unchanged.
+- Opt-in automatic preparation after successful validation: the combined media worker validates and extracts a 16 kHz mono PCM WAV derivative for ASR from one bounded download, with independent durable state, queue and a two-attempt budget. Originals remain unchanged.
 - Validation-ready and preparation-ready are checked separately; preparation does not expose media playback or storage URLs.
 
-[V] A real-device upload reached `ready` on its first validation attempt, and the mobile client displayed **Validation passed — 1 / 4**. Backend race/integration checks, vet/build, mobile type-check/lint and offline tests passed during the implementation work.
+[V, 2026-11-23] In the configured development database, migration 00006 is applied and preparation is enabled locally. Two owned uploads have a ready, checksum-verified WAV derivative; one earlier upload exhausted both attempts and failed with `TEMP_STORAGE_UNAVAILABLE` (the worker could not create its temporary attempt directory at the time), not a codec rejection. Both ready derivatives recorded `audio_start_ms = 0`, so a nonzero signed source origin has not yet been exercised with real data. A real-device upload reached `ready` on its first attempt; at that time the mobile client displayed **Validation passed — 1 / 4**. The status response now supplies `maxAttempts`, and the card renders `attempts / maxAttempts` (currently 2). Backend race/integration checks, vet/build, mobile type-check/lint and offline tests passed during the implementation work.
 
-[U] Live rejection, transient-failure retry and worker-crash recovery checks are deferred at the user's request. New preparation code is not yet verified against the application DB or real S3; migration 00006 has not been applied there and preparation defaults disabled. Persistent media browsing, projects, transcription, AI clip suggestions, editing, captions, rendering and secure export downloads remain unimplemented.
+[U] Live rejection, worker-crash recovery and nonzero-origin mapping checks remain deferred/unverified. The status response now includes `maxAttempts` (currently 2) and the mobile card renders `attempts / maxAttempts`; the `attempts` field keeps a 0–4 ceiling only for historical rows. Persistent media browsing, projects, transcription, AI clip suggestions, editing, captions, rendering and secure export downloads remain unimplemented. Deepgram is the selected transcription provider (2026-11-23), but no transcription integration, `apps/llm` service or provider call exists.
 
 ### Validation policy
 
-[V] Current limits are 2 GB, two hours, up to 4K including portrait, required audio and explicit container/codec allowlists. One worker handles one task at a time. Download timeout is 15 minutes, probe timeout one minute and whole-task timeout 20 minutes. Retryable validation failures allow three retries after the initial attempt; permanent rejection does not retry. These worker retries are separate from the intentionally absent mobile upload retries.
+[V] Current limits are 2 GB, two hours, up to 4K including portrait, required audio and explicit container/codec allowlists. One combined worker handles one task at a time. Download timeout is 15 minutes, probe timeout one minute and the combined validation/preparation task budget is 90 minutes. The combined worker allows two durable attempts total (one retry) because `job.ProcessAttempts` derives from `preparation.MaxAttempts`; permanent rejection does not retry. The `attempts` field retains a 0–4 ceiling for historical rows, while the status response exposes `maxAttempts` (currently 2) as the live budget; the mobile card uses it instead of hardcoding a denominator. These worker retries are separate from the intentionally absent mobile upload retries.
 
 ## Repository layout
 
@@ -137,9 +137,9 @@ Stop each foreground process with Ctrl+C and allow the worker to finish its shut
 
 ## Media preparation
 
-The new media-processing feature requires separately approved migration **00006**. Do not enable it before applying the reviewed migration to the intended database. New completed uploads enqueue one combined processing job when `MEDIA_PREPARATION_ENABLED=true`; the job validates the original and extracts audio from the same download. Existing ready uploads are not automatically backfilled. The current-upload card offers an explicit **Prepare media** action only when a preparation record is missing. It cannot reset failed attempts or restart terminal work.
+Media processing requires migration **00006**. It is applied in the configured development database as of 2026-11-23; any other environment still requires the reviewed migration before enabling, and it must never be enabled against a database that has not applied 00006. New completed uploads enqueue one combined processing job when `MEDIA_PREPARATION_ENABLED=true`; the job validates the original and extracts audio from the same download. Existing ready uploads are not automatically backfilled. The current-upload card offers an explicit **Prepare media** action only when a preparation record is missing. It cannot reset failed attempts or restart terminal work.
 
-After the migration is approved/applied, opt in explicitly in separate terminals:
+In an environment with 00006 applied, opt in explicitly in separate terminals:
 
 ```bash
 cd apps/api
@@ -156,6 +156,12 @@ Preparation concurrency is one per process, with two FFmpeg codec threads, a 90-
 Grant the preparation role only the required original reads and conditional writes under the private derived prefix `dev-uploads/<assetId>/derived/v1/`. Do not grant public access or original-object deletion/overwrite rights. Output namespaces are immutable and unrelated to DB fencing tokens. Private unpublished derivatives can remain after ambiguous failures; a safe orphan-retention policy is still needed before release.
 
 The owner-authorized preparation/status routes do not expose storage locations. The normalized audio is internal to the processing pipeline and is not signed or returned to the mobile client.
+
+### Verified preparation state — 2026-11-23
+
+[V] The configured development database contains 8 assets (3 validation-ready) and 3 preparation records (2 ready, 1 failed). Each ready record has a 12,867,822-byte WAV with a non-null SHA-256 checksum, source hash and `audio_start_ms`; both origins are 0 ms. A later upload validated and prepared on its first attempt.
+
+[V] The failed record belongs to a 99,254,099-byte MP4: the asset is `validation_failed` with `validation_attempts=2` and code `TEMP_STORAGE_UNAVAILABLE`, and the preparation exhausted its two attempts with the sanitized `PREPARATION_FAILED`. The code maps temporary attempt-directory creation failure to `TEMP_STORAGE_UNAVAILABLE`, so this is a temp-storage failure, not a codec/container/HDR rejection. The temporary root is currently empty with ample free space, and no worker log was persisted, so the exact transient cause is [I]. Terminal rows cannot be retried through the idempotent ensure path.
 
 ## Checks and generated contracts
 
@@ -199,4 +205,4 @@ The contract is JSON-compatible YAML because the generator and drift guards use 
 
 ## Next verification
 
-[I] The user deferred live invalid-video/network/retry/crash checks; they remain release gaps, not verified behavior. New preparation needs separately approved migration/IAM/service setup. The next implementation milestone is a reviewed canonical project model and basic clip rendering from immutable originals, followed by separately selected transcription/AI providers. The broader editing application and its phase exits are not complete.
+[I] The user deferred live invalid-video/network/retry/crash checks; they remain release gaps, not verified behavior. Preparation has an applied development migration and verified local outputs, but other environments still need approved migration/IAM setup. Deepgram is the selected transcription provider (2026-11-23), but no integration exists. The next implementation milestone remains a reviewed canonical project model and basic clip rendering from immutable originals, followed by the transcription slice. The broader editing application and its phase exits are not complete.

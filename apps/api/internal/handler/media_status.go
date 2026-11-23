@@ -9,6 +9,7 @@ import (
 	"github.com/krishkishore972/clip_ai/internal/auth"
 	"github.com/krishkishore972/clip_ai/internal/httpserver"
 	"github.com/krishkishore972/clip_ai/internal/media"
+	"github.com/krishkishore972/clip_ai/internal/preparation"
 )
 
 // MediaStatusReader is deliberately read-only; a status request cannot retry work.
@@ -19,6 +20,14 @@ type MediaStatusReader interface {
 type MediaStatusHandler struct {
 	reader MediaStatusReader
 	logger *slog.Logger
+}
+
+// mediaStatusResponse adds the active attempt budget to the persisted
+// validation projection. The budget is processing policy, not stored state, so
+// clients must not assume the historical attempts ceiling is the live budget.
+type mediaStatusResponse struct {
+	media.AssetStatus
+	MaxAttempts int `json:"maxAttempts"`
 }
 
 func NewMediaStatusHandler(reader MediaStatusReader, logger *slog.Logger) *MediaStatusHandler {
@@ -54,7 +63,10 @@ func (h *MediaStatusHandler) Get(w http.ResponseWriter, r *http.Request) {
 	}
 	switch {
 	case err == nil:
-		_ = httpserver.WriteJSON(w, http.StatusOK, result)
+		_ = httpserver.WriteJSON(w, http.StatusOK, mediaStatusResponse{
+			AssetStatus: result,
+			MaxAttempts: preparation.MaxAttempts,
+		})
 	case errors.Is(err, media.ErrStatusNotFound):
 		_ = httpserver.WriteError(w, r, http.StatusNotFound, "media_not_found", "Media asset not found.", nil)
 	case errors.Is(err, media.ErrStatusUnauthenticated):

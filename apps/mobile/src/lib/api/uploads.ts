@@ -78,6 +78,9 @@ export function parseMediaStatus(
     !Number.isInteger(data.attempts) ||
     Number(data.attempts) < 0 ||
     Number(data.attempts) > 4 ||
+    !Number.isInteger(data.maxAttempts) ||
+    Number(data.maxAttempts) < 1 ||
+    Number(data.maxAttempts) > 2 ||
     !(
       data.failureCode === null ||
       (typeof data.failureCode === "string" &&
@@ -92,6 +95,7 @@ export function parseMediaStatus(
     assetId,
     status: data.status as MediaValidationState,
     attempts: data.attempts as number,
+    maxAttempts: data.maxAttempts as number,
     failureCode: data.failureCode as string | null,
     updatedAt: data.updatedAt,
     validatedAt: data.validatedAt as string | null,

@@ -15,6 +15,7 @@ import (
 	"github.com/krishkishore972/clip_ai/internal/auth"
 	"github.com/krishkishore972/clip_ai/internal/handler"
 	"github.com/krishkishore972/clip_ai/internal/media"
+	"github.com/krishkishore972/clip_ai/internal/preparation"
 )
 
 // Called only by the existing opt-in disposable-schema suite, after migration 5.
@@ -66,7 +67,7 @@ func testMediaStatus(t *testing.T, ctx context.Context, pool *sql.DB) {
 		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 			t.Fatal(err)
 		}
-		if len(body) != 6 || body["assetId"] != id || body["status"] != state || body["attempts"] != float64(i) || body["updatedAt"] != "2026-11-19T11:30:00Z" {
+		if len(body) != 7 || body["assetId"] != id || body["status"] != state || body["attempts"] != float64(i) || body["maxAttempts"] != float64(preparation.MaxAttempts) || body["updatedAt"] != "2026-11-19T11:30:00Z" {
 			t.Fatal(body)
 		}
 		if state == media.StatusReady {

@@ -62,7 +62,8 @@ func TestMediaStatusContract(t *testing.T) {
 	}
 	status := spec.Components.Schemas["MediaAssetStatus"]
 	typ := reflect.TypeOf(media.AssetStatus{})
-	if len(status.Properties) != typ.NumField() || len(status.Required) != typ.NumField() || status.AdditionalProperties == nil || *status.AdditionalProperties {
+	// The HTTP response adds maxAttempts; the persisted projection does not.
+	if len(status.Properties) != typ.NumField()+1 || len(status.Required) != typ.NumField()+1 || status.AdditionalProperties == nil || *status.AdditionalProperties {
 		t.Fatal("status shape drift")
 	}
 	for i := range typ.NumField() {
@@ -84,6 +85,13 @@ func TestMediaStatusContract(t *testing.T) {
 	var attempts schema
 	if err := json.Unmarshal(status.Properties["attempts"], &attempts); err != nil || attempts.Minimum != 0 || attempts.Maximum != 4 || string(attempts.Type) != `"integer"` {
 		t.Fatal("attempt limits drift")
+	}
+	if !slices.Contains(status.Required, "maxAttempts") {
+		t.Fatal("maxAttempts must be required")
+	}
+	var maxAttempts schema
+	if err := json.Unmarshal(status.Properties["maxAttempts"], &maxAttempts); err != nil || maxAttempts.Minimum != 1 || maxAttempts.Maximum != 2 || string(maxAttempts.Type) != `"integer"` {
+		t.Fatal("max attempt budget drift")
 	}
 	states := spec.Components.Schemas["MediaValidationState"].Enum
 	want := []string{media.StatusUploadedUnvalidated, media.StatusValidating, media.StatusReady, media.StatusRejected, media.StatusValidationFailed}

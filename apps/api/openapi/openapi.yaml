@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Video AI API",
-    "version": "0.6.0",
+    "version": "0.7.0",
     "description": "Authenticated personal-only mobile API. Clerk session bearer tokens resolve PostgreSQL users; assets belong directly to users. Upload routes remain development-only and require DEV_S3_UPLOAD_ENABLED=true for storage. V3 Upload-Token capabilities additionally bind user ownership; legacy v1/v2 tokens are rejected. Verified completed uploads are persisted with uploaded_unvalidated status. Each create starts a new upload; no create deduplication guarantee. No video bytes are accepted here. Never send authentication headers to S3."
   },
   "security": [{ "ClerkSession": [] }],
@@ -338,6 +338,7 @@
           "assetId",
           "status",
           "attempts",
+          "maxAttempts",
           "failureCode",
           "updatedAt",
           "validatedAt"
@@ -349,7 +350,13 @@
             "type": "integer",
             "minimum": 0,
             "maximum": 4,
-            "description": "Durable claimed validation attempts, including interrupted attempts; not dispatcher delivery attempts."
+            "description": "Durable claimed validation attempts, including interrupted attempts; not dispatcher delivery attempts. Historical rows may exceed maxAttempts because the field ceiling is retained for backward compatibility."
+          },
+          "maxAttempts": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2,
+            "description": "Active durable attempt budget for the combined validation/preparation worker. Use this value, not the historical attempts ceiling, when presenting progress or remaining retries."
           },
           "failureCode": {
             "type": ["string", "null"],

@@ -80,7 +80,7 @@ function ValidationStatusCard({
         <AppText accessibilityLiveRegion="polite">{copy.detail}</AppText>
         <AppText variant="caption" tone="secondary">
           {snapshot.status
-            ? `Validation attempts: ${snapshot.status.attempts} / 4`
+            ? `Validation attempts: ${snapshot.status.attempts} / ${snapshot.status.maxAttempts}`
             : "Validation attempts: not checked"}
         </AppText>
         {snapshot.stale && (

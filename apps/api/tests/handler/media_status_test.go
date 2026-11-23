@@ -15,6 +15,7 @@ import (
 
 	"github.com/krishkishore972/clip_ai/internal/auth"
 	"github.com/krishkishore972/clip_ai/internal/media"
+	"github.com/krishkishore972/clip_ai/internal/preparation"
 )
 
 type statusReaderFunc func(context.Context, string) (media.AssetStatus, error)
@@ -55,15 +56,15 @@ func TestMediaStatusAllStates(t *testing.T) {
 			if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 				t.Fatal(err)
 			}
-			if len(body) != 6 {
+			if len(body) != 7 {
 				t.Fatalf("non-status fields exposed: %v", body)
 			}
-			for _, key := range []string{"assetId", "status", "attempts", "failureCode", "updatedAt", "validatedAt"} {
+			for _, key := range []string{"assetId", "status", "attempts", "maxAttempts", "failureCode", "updatedAt", "validatedAt"} {
 				if _, ok := body[key]; !ok {
 					t.Fatalf("missing required field %s", key)
 				}
 			}
-			if body["updatedAt"] != "2026-11-19T11:30:00Z" || body["status"] != state {
+			if body["updatedAt"] != "2026-11-19T11:30:00Z" || body["status"] != state || body["maxAttempts"] != float64(preparation.MaxAttempts) {
 				t.Fatal(body)
 			}
 			if state == media.StatusReady {

@@ -22,6 +22,7 @@ export type MediaAssetStatus = {
   "assetId": Token;
   "status": MediaValidationState;
   "attempts": number;
+  "maxAttempts": number;
   "failureCode": string | null;
   "updatedAt": string;
   "validatedAt": string | null;
