@@ -39,6 +39,9 @@ type Claim struct {
 	Attempts                                          int
 }
 
+// Valid checks the bounded, supported source envelope before worker I/O.
+func (c Claim) Valid() bool { return c.valid() }
+
 func (c Claim) valid() bool {
 	prefix := "dev-uploads/" + c.AssetID + "/derived/v1/"
 	part := strings.TrimSuffix(strings.TrimPrefix(c.TranscriptKey, prefix), "/transcript.json")

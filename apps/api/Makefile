@@ -57,6 +57,10 @@ dispatcher: ## Run the outbox dispatcher (disabled unless explicitly enabled)
 transcription-worker: ## Run the S3 transcript worker (disabled unless explicitly enabled)
 	$(GO) run $(CMD_DIR)/transcription-worker
 
+.PHONY: curation-worker
+curation-worker: ## Run the transcript-to-proposals worker (disabled unless explicitly enabled)
+	$(GO) run $(CMD_DIR)/curation-worker
+
 .PHONY: media-worker build-media-worker
 media-worker: ## Run the combined media worker (disabled unless explicitly enabled)
 	$(GO) run $(CMD_DIR)/media-worker
