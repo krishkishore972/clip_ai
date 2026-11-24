@@ -8,12 +8,15 @@ import (
 	"encoding/hex"
 	"errors"
 	"regexp"
+	"time"
 )
 
 const (
 	TaskType           = "media:curate"
 	Queue              = "curation"
 	MaxTranscriptWords = 12_000
+	TaskTimeout        = 2 * time.Minute
+	TaskMaxRetry       = 1
 )
 
 var (

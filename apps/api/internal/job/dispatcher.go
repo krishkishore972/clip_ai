@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/hibiken/asynq"
+	"github.com/krishkishore972/clip_ai/internal/curation"
 	"github.com/krishkishore972/clip_ai/internal/transcription"
 )
 
@@ -117,6 +118,8 @@ func (d *Dispatcher) DispatchOne(ctx context.Context) (DispatchResult, error) {
 		opts = append(opts, asynq.MaxRetry(ProcessMaxRetry), asynq.Timeout(90*time.Minute))
 	case transcription.TaskType:
 		opts = append(opts, asynq.MaxRetry(1), asynq.Timeout(TranscriptionTaskTimeout))
+	case curation.TaskType:
+		opts = append(opts, asynq.MaxRetry(curation.TaskMaxRetry), asynq.Timeout(curation.TaskTimeout))
 	}
 	_, enqueueErr := d.client.EnqueueContext(enqueueCtx, asynq.NewTask(taskType, payload), opts...)
 	enqueueDeadline := enqueueCtx.Err()

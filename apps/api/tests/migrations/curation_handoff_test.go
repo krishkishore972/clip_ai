@@ -34,6 +34,31 @@ func finishCurationTranscript(t *testing.T, ctx context.Context, pool *sql.DB, i
 	if err != nil {
 		t.Fatal(err)
 	}
+	// These standalone helper tests need a ready transcript before its initial
+	// handoff. Finish now performs that handoff, so reset only its fixture data.
+	// TestTranscriptPublicationCuration exercises Finish without this reset.
+	if _, err := pool.ExecContext(ctx, `
+		DELETE FROM outbox_events
+		WHERE asset_id = $1 AND task_type = 'media:curate'
+	`, id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.ExecContext(ctx, `
+		UPDATE media_curation_jobs
+		SET
+		    status = 'pending',
+		    failure_code = NULL,
+		    completed_at = NULL,
+		    transcript_bucket = NULL,
+		    transcript_key = NULL,
+		    transcript_sha256 = NULL,
+		    transcript_size_bytes = NULL,
+		    transcript_word_count = NULL,
+		    source_duration_ms = NULL
+		WHERE asset_id = $1
+	`, id); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func commitCurationHandoff(ctx context.Context, pool *sql.DB, id string) (bool, error) {

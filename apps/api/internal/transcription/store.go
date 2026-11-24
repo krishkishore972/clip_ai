@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/krishkishore972/clip_ai/internal/curation"
 	"github.com/krishkishore972/clip_ai/internal/media"
 	"github.com/krishkishore972/clip_ai/internal/storage"
 )
@@ -373,6 +374,11 @@ func (s SQLStore) Finish(ctx context.Context, c Claim, pub *Publication, code st
 		}
 		if n != 1 {
 			return ErrStale
+		}
+		// Publication and the initial curation handoff must commit together.
+		// Finish already owns the transcript lock; the helper then locks curation.
+		if _, err := curation.EnqueueReadyTranscript(op, tx, c.AssetID); err != nil {
+			return fmt.Errorf("transcription: curation handoff: %w", err)
 		}
 	}
 	if err := tx.Commit(); err != nil {
