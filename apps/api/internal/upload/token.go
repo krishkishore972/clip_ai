@@ -26,6 +26,8 @@ type claims struct {
 	PartSize  int64  `json:"partSize"`
 	Type      string `json:"type"`
 	ExpiresAt int64  `json:"exp"`
+	// Absent only on already-issued v3 capabilities; new creates require them.
+	ClipPreferences *ClipPreferences `json:"clipPreferences,omitempty"`
 }
 
 func (s *Service) sign(c claims) (string, error) {
@@ -81,6 +83,9 @@ func (s *Service) verify(ctx context.Context, a Access) (claims, error) {
 	}
 	if p.UserID != c.UserID {
 		return claims{}, ErrNotFound
+	}
+	if c.ClipPreferences != nil && !c.ClipPreferences.Valid() {
+		return claims{}, ErrToken
 	}
 	return c, nil
 }

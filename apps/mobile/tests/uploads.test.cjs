@@ -4,13 +4,23 @@ const { join } = require("node:path");
 const { createUploadApi, AuthenticationRequired } = require(
   join(process.env.UPLOAD_TEST_BUILD_DIR, "api/uploads.js"),
 );
-const { uploadVideo, videoMetadata } = require(
-  join(process.env.UPLOAD_TEST_BUILD_DIR, "uploads/upload-video.js"),
-);
+const {
+  uploadVideo,
+  videoMetadata,
+  clipPreferencesFromInput,
+  validClipPreferences,
+} = require(join(process.env.UPLOAD_TEST_BUILD_DIR, "uploads/upload-video.js"));
 
 const API = "http://127.0.0.1:8080";
 const TOKEN = "payload.signature";
-const file = videoMetadata("sample.mp4", 10);
+const file = {
+  ...videoMetadata("sample.mp4", 10),
+  clipPreferences: {
+    candidateCount: 5,
+    minDurationMs: 15000,
+    maxDurationMs: 60000,
+  },
+};
 const session = {
   uploadId: "upload-1",
   uploadToken: TOKEN,
@@ -148,7 +158,7 @@ function fixture(options = {}) {
       uploadVideo({
         api,
         source,
-        file,
+        file: options.file ?? file,
         signal: controller.signal,
         onProgress: (value) => progress.push(value),
       }),
@@ -179,6 +189,42 @@ test("create → sequential bounded chunks → complete, preserving bytes, token
     f.events.some((e) => e.startsWith("DELETE")),
     false,
   );
+  f.assertClosed();
+});
+
+test("clip input converts exact decimal seconds to integer milliseconds", () => {
+  assert.deepEqual(
+    clipPreferencesFromInput("5", "15", "60"),
+    file.clipPreferences,
+  );
+  assert.deepEqual(clipPreferencesFromInput("1", "0.001", "1.005"), {
+    candidateCount: 1,
+    minDurationMs: 1,
+    maxDurationMs: 1005,
+  });
+  for (const values of [
+    ["", "15", "60"],
+    ["6", "15", "60"],
+    ["1", "", "60"],
+    ["1", "60", "15"],
+    ["1", "15", "60.001"],
+    ["1", "0", "60"],
+    ["1", "0.0001", "60"],
+    ["1", "1e1", "60"],
+  ]) {
+    assert.throws(() => clipPreferencesFromInput(...values), /Choose/);
+  }
+});
+
+test("invalid preferences stop before create and close the reader", async () => {
+  assert.equal(validClipPreferences(undefined), false);
+  assert.equal(
+    validClipPreferences({ ...file.clipPreferences, candidateCount: 1.5 }),
+    false,
+  );
+  const f = fixture({ file: { ...file, clipPreferences: undefined } });
+  await assert.rejects(f.run(), /Choose valid clip count/);
+  assert.equal(f.events.includes("POST /uploads"), false);
   f.assertClosed();
 });
 

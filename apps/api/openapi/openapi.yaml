@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Video AI API",
-    "version": "0.8.0",
+    "version": "0.9.0",
     "description": "Authenticated personal-only mobile API. Clerk session bearer tokens resolve PostgreSQL users; assets belong directly to users. Upload routes remain development-only and require DEV_S3_UPLOAD_ENABLED=true for storage. V3 Upload-Token capabilities additionally bind user ownership; legacy v1/v2 tokens are rejected. Verified completed uploads are persisted with uploaded_unvalidated status. Each create starts a new upload; no create deduplication guarantee. No video bytes are accepted here. Never send authentication headers to S3."
   },
   "security": [{ "ClerkSession": [] }],
@@ -561,10 +561,31 @@
         "pattern": "^[A-Za-z0-9_.:-]+$"
       },
       "PartNumber": { "type": "integer", "minimum": 1, "maximum": 10000 },
+      "ClipPreferences": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["candidateCount", "minDurationMs", "maxDurationMs"],
+        "description": "Explicit upload-selected preferences, bound into the signed upload capability. minDurationMs must not exceed maxDurationMs; checked at runtime. Completion persists these preferences with the asset and validation event atomically, without enqueueing curation. Already-issued v3 tokens lacking preferences remain usable without creating a curation job; no defaults/backfill.",
+        "properties": {
+          "candidateCount": { "type": "integer", "minimum": 1, "maximum": 5 },
+          "minDurationMs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "maximum": 60000
+          },
+          "maxDurationMs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "maximum": 60000
+          }
+        }
+      },
       "CreateUploadRequest": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["filename", "sizeBytes", "contentType"],
+        "required": ["filename", "sizeBytes", "contentType", "clipPreferences"],
         "properties": {
           "filename": {
             "type": "string",
@@ -581,6 +602,9 @@
           "contentType": {
             "type": "string",
             "enum": ["video/mp4", "video/quicktime", "video/webm"]
+          },
+          "clipPreferences": {
+            "$ref": "#/components/schemas/ClipPreferences"
           }
         }
       },

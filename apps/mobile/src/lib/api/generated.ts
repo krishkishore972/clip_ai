@@ -32,10 +32,17 @@ export type Token = string;
 
 export type PartNumber = number;
 
+export type ClipPreferences = {
+  "candidateCount": number;
+  "minDurationMs": number;
+  "maxDurationMs": number;
+};
+
 export type CreateUploadRequest = {
   "filename": string;
   "sizeBytes": number;
   "contentType": "video/mp4" | "video/quicktime" | "video/webm";
+  "clipPreferences": ClipPreferences;
 };
 
 export type SignUploadPartsRequest = {

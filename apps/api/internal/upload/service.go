@@ -83,9 +83,11 @@ func New(store Store, cfg Config) (*Service, error) {
 		tokenTTL: cfg.TokenTTL, presignTTL: cfg.PresignTTL, now: cfg.Now, random: cfg.Random}, nil
 }
 
-// Create always initiates a fresh S3 upload. Without persistence it cannot promise
-// deduplication after a lost HTTP response; lifecycle cleanup must handle orphans.
+// Create starts a fresh S3 multipart upload on every call.
+// Upload creation has no durable idempotency record, so retrying after a lost
+// response may leave an orphan upload requiring lifecycle cleanup.
 func (s *Service) Create(ctx context.Context, in CreateUploadRequest) (UploadSession, error) {
+
 	if in.SizeBytes > MaxUploadBytes {
 		return UploadSession{}, ErrTooLarge
 	}
@@ -104,38 +106,52 @@ func (s *Service) Create(ctx context.Context, in CreateUploadRequest) (UploadSes
 	}
 
 	p, ok := auth.FromContext(ctx)
+
 	if !ok {
 		return UploadSession{}, ErrUnauthenticated
 	}
+
+	if !in.ClipPreferences.Valid() {
+		return UploadSession{}, ErrInvalid
+	}
+
 	var id [16]byte
+
 	if _, err := io.ReadFull(s.random, id[:]); err != nil {
 		return UploadSession{}, fmt.Errorf("upload: generate ID: %w", err)
 	}
 
+	preferences := in.ClipPreferences
+
 	c := claims{
-		V:         3,
-		UserID:    p.UserID,
-		Filename:  in.Filename,
-		ID:        hex.EncodeToString(id[:]),
-		Scope:     s.scope,
-		Size:      in.SizeBytes,
-		PartSize:  PartSizeBytes,
-		Type:      in.ContentType,
-		ExpiresAt: s.now().Add(s.tokenTTL).Unix(),
+		V:               3,
+		UserID:          p.UserID,
+		Filename:        in.Filename,
+		ID:              hex.EncodeToString(id[:]),
+		Scope:           s.scope,
+		Size:            in.SizeBytes,
+		PartSize:        PartSizeBytes,
+		Type:            in.ContentType,
+		ExpiresAt:       s.now().Add(s.tokenTTL).Unix(),
+		ClipPreferences: &preferences,
 	}
 
 	c.Key = "dev-uploads/" + c.ID + "/source" + ext
+
 	awsID, err := s.store.Begin(ctx, c.Key, c.Type)
+
 	if err != nil {
 		return UploadSession{}, backendError(err)
 	}
 
 	c.AWSID = awsID
+
 	if awsID == "" {
 		return UploadSession{}, ErrUnavailable
 	}
 
 	token, err := s.sign(c)
+
 	if err != nil || len(token) > MaxTokenBytes {
 		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
@@ -182,11 +198,26 @@ func (s *Service) completed(ctx context.Context, c claims, token string) (Upload
 	if info.SizeBytes != c.Size || info.ContentType != c.Type {
 		return UploadSession{}, ErrConflict
 	}
-	if err := s.assets.SaveCompleted(ctx, CompletedAsset{ID: c.ID, Bucket: s.bucket, Key: c.Key, Filename: c.Filename, ContentType: c.Type, SizeBytes: info.SizeBytes}); err != nil {
-		if errors.Is(err, ErrNotFound) {
+	err = s.assets.SaveCompleted(ctx, CompletedAsset{
+		ID:              c.ID,
+		Bucket:          s.bucket,
+		Key:             c.Key,
+		Filename:        c.Filename,
+		ContentType:     c.Type,
+		SizeBytes:       info.SizeBytes,
+		ClipPreferences: c.ClipPreferences,
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrNotFound):
 			return UploadSession{}, ErrNotFound
+		case errors.Is(err, ErrConflict):
+			return UploadSession{}, ErrConflict
+		case errors.Is(err, ErrInvalid):
+			return UploadSession{}, ErrInvalid
+		default:
+			return UploadSession{}, backendError(err)
 		}
-		return UploadSession{}, backendError(err)
 	}
 	return state(c, token, "uploaded_unvalidated", nil), nil
 }

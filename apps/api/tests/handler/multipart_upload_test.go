@@ -70,7 +70,7 @@ func uploadRouter(service handler.MultipartUploadService) http.Handler {
 	return httpserver.RequestID(mux)
 }
 
-const createBody = `{"filename":"sample.mp4","sizeBytes":1024,"contentType":"video/mp4"}`
+const createBody = `{"filename":"sample.mp4","sizeBytes":1024,"contentType":"video/mp4","clipPreferences":{"candidateCount":5,"minDurationMs":15000,"maxDurationMs":60000}}`
 
 var uploadEndpoints = []struct {
 	method, path, body, operation string
@@ -78,7 +78,10 @@ var uploadEndpoints = []struct {
 	input                         any
 }{
 	{http.MethodPost, "/uploads", createBody, "create", http.StatusCreated,
-		handler.CreateUploadRequest{Filename: "sample.mp4", SizeBytes: 1024, ContentType: "video/mp4"}},
+		handler.CreateUploadRequest{
+			Filename: "sample.mp4", SizeBytes: 1024, ContentType: "video/mp4",
+			ClipPreferences: upload.ClipPreferences{CandidateCount: 5, MinDurationMs: 15000, MaxDurationMs: 60000},
+		}},
 	{http.MethodPost, "/uploads/session-1/parts/sign", `{"partNumbers":[1,2]}`, "sign", http.StatusOK, []int{1, 2}},
 	{http.MethodGet, "/uploads/session-1", "", "get", http.StatusOK, nil},
 	{http.MethodPost, "/uploads/session-1/complete", `{"parts":[{"partNumber":1,"eTag":"\"tag\""}]}`, "complete", http.StatusOK,
@@ -329,7 +332,10 @@ func TestMultipartUploadMetadataBoundary(t *testing.T) {
 	} {
 		t.Run(pair.filename, func(t *testing.T) {
 			t.Parallel()
-			body, err := json.Marshal(handler.CreateUploadRequest{Filename: pair.filename, ContentType: pair.contentType, SizeBytes: upload.MaxUploadBytes})
+			body, err := json.Marshal(handler.CreateUploadRequest{
+				Filename: pair.filename, ContentType: pair.contentType, SizeBytes: upload.MaxUploadBytes,
+				ClipPreferences: upload.ClipPreferences{CandidateCount: 5, MinDurationMs: 15000, MaxDurationMs: 60000},
+			})
 			if err != nil {
 				t.Fatal(err)
 			}

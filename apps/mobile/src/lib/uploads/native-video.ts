@@ -2,11 +2,14 @@ import * as DocumentPicker from "expo-document-picker";
 import { File, FileMode } from "expo-file-system";
 import { Platform } from "react-native";
 
-import type { CreateUploadRequest } from "../api/generated";
-import { type ChunkSource, videoMetadata } from "./upload-video";
+import {
+  type ChunkSource,
+  type VideoMetadata,
+  videoMetadata,
+} from "./upload-video";
 
 export interface SelectedVideo {
-  metadata: CreateUploadRequest;
+  metadata: VideoMetadata;
   open(): ChunkSource;
 }
 
@@ -63,7 +66,7 @@ export async function pickVideo(): Promise<SelectedVideo | null> {
       }`,
     );
   }
-  let metadata: CreateUploadRequest;
+  let metadata: VideoMetadata;
   try {
     metadata = videoMetadata(asset.name, sizeBytes);
   } catch (error) {

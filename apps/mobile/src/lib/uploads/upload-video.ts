@@ -1,9 +1,55 @@
 import type {
+  ClipPreferences,
   CompleteUploadPart,
   CreateUploadRequest,
   UploadSession,
 } from "../api/generated";
 import type { UploadApi } from "../api/uploads";
+
+export type VideoMetadata = Pick<
+  CreateUploadRequest,
+  "filename" | "sizeBytes" | "contentType"
+>;
+
+export function validClipPreferences(
+  value: ClipPreferences | undefined,
+): value is ClipPreferences {
+  return (
+    !!value &&
+    Number.isSafeInteger(value.candidateCount) &&
+    value.candidateCount >= 1 &&
+    value.candidateCount <= 5 &&
+    Number.isSafeInteger(value.minDurationMs) &&
+    Number.isSafeInteger(value.maxDurationMs) &&
+    value.minDurationMs >= 1 &&
+    value.maxDurationMs >= value.minDurationMs &&
+    value.maxDurationMs <= 60_000
+  );
+}
+
+// Parse decimal seconds to integer milliseconds without floating-point timing.
+export function clipPreferencesFromInput(
+  count: string,
+  minimumSeconds: string,
+  maximumSeconds: string,
+): ClipPreferences {
+  function milliseconds(value: string): number {
+    if (!/^\d{1,2}(?:\.\d{1,3})?$/.test(value)) return NaN;
+    const [whole, fraction = ""] = value.split(".");
+    return Number(whole) * 1000 + Number(fraction.padEnd(3, "0"));
+  }
+  const preferences: ClipPreferences = {
+    candidateCount: /^[1-5]$/.test(count) ? Number(count) : NaN,
+    minDurationMs: milliseconds(minimumSeconds),
+    maxDurationMs: milliseconds(maximumSeconds),
+  };
+  if (!validClipPreferences(preferences)) {
+    throw new Error(
+      "Choose 1–5 clips and duration limits from 0.001 to 60 seconds, with minimum no greater than maximum.",
+    );
+  }
+  return preferences;
+}
 
 export interface ChunkSource {
   sizeBytes: number;
@@ -20,7 +66,7 @@ export interface UploadProgress {
 export function videoMetadata(
   filename: string,
   sizeBytes: number,
-): CreateUploadRequest {
+): VideoMetadata {
   const types: Record<string, CreateUploadRequest["contentType"]> = {
     mp4: "video/mp4",
     mov: "video/quicktime",
@@ -67,6 +113,11 @@ export async function uploadVideo({
     // Close the reader before attempting remote cleanup, including on cancellation.
     try {
       videoMetadata(file.filename, file.sizeBytes);
+      if (!validClipPreferences(file.clipPreferences)) {
+        throw new Error(
+          "Choose valid clip count and duration limits before uploading.",
+        );
+      }
       if (source.sizeBytes !== file.sizeBytes)
         throw new Error("The selected video changed. Select it again.");
       signal.throwIfAborted();

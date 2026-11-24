@@ -25,9 +25,10 @@ var (
 )
 
 type CreateUploadRequest struct {
-	Filename    string `json:"filename"`
-	SizeBytes   int64  `json:"sizeBytes"`
-	ContentType string `json:"contentType"`
+	Filename        string          `json:"filename"`
+	SizeBytes       int64           `json:"sizeBytes"`
+	ContentType     string          `json:"contentType"`
+	ClipPreferences ClipPreferences `json:"clipPreferences"`
 }
 
 type SignUploadPartsRequest struct {
@@ -75,4 +76,18 @@ type SignedUploadParts struct {
 type Access struct {
 	UploadID string
 	Token    string
+}
+
+type ClipPreferences struct {
+	CandidateCount int   `json:"candidateCount"`
+	MinDurationMs  int64 `json:"minDurationMs"`
+	MaxDurationMs  int64 `json:"maxDurationMs"`
+}
+
+func (p ClipPreferences) Valid() bool {
+	return p.CandidateCount >= 1 &&
+		p.CandidateCount <= 5 &&
+		p.MinDurationMs >= 1 &&
+		p.MaxDurationMs >= p.MinDurationMs &&
+		p.MaxDurationMs <= 60_000
 }

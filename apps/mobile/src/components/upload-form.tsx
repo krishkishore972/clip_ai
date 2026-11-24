@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/expo";
-import { AppState, View } from "react-native";
+import { AppState, TextInput, View } from "react-native";
 
 import {
   ActionButton,
@@ -12,7 +12,11 @@ import {
 import { configuredUploadApi } from "@/lib/api/mobile-client";
 import { MediaValidationStatus } from "@/components/media-validation-status";
 import { pickVideo, type SelectedVideo } from "@/lib/uploads/native-video";
-import { uploadVideo, type UploadProgress } from "@/lib/uploads/upload-video";
+import {
+  clipPreferencesFromInput,
+  uploadVideo,
+  type UploadProgress,
+} from "@/lib/uploads/upload-video";
 
 const sizeLabel = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
 const statusLabels = {
@@ -32,6 +36,9 @@ export function UploadForm() {
   const [progress, setProgress] = useState<UploadProgress | null>(null);
   const [message, setMessage] = useState("");
   const [completedAssetId, setCompletedAssetId] = useState<string | null>(null);
+  const [clipCount, setClipCount] = useState("");
+  const [minimumSeconds, setMinimumSeconds] = useState("");
+  const [maximumSeconds, setMaximumSeconds] = useState("");
   const controller = useRef<AbortController | null>(null);
   const locked = useRef(false);
   const mounted = useRef(true);
@@ -84,6 +91,11 @@ export function UploadForm() {
     setMessage("");
     setProgress(null);
     try {
+      const clipPreferences = clipPreferencesFromInput(
+        clipCount,
+        minimumSeconds,
+        maximumSeconds,
+      );
       // The usual cause of "Request failed or timed out" is this URL not being
       // reachable from the phone (localhost, wrong LAN IP, API not running).
       console.warn(
@@ -93,7 +105,7 @@ export function UploadForm() {
       const api = configuredUploadApi(getToken);
       const completed = await uploadVideo({
         api,
-        file: selected.metadata,
+        file: { ...selected.metadata, clipPreferences },
         source: selected.open(),
         signal: active.signal,
         onProgress: (value) => {
@@ -153,6 +165,52 @@ export function UploadForm() {
           Keep the video available on this device until the upload finishes.
         </AppText>
       </Surface>
+      {!complete && (
+        <Surface>
+          <AppText variant="heading">Clip preferences</AppText>
+          <AppText variant="caption" tone="secondary">
+            Request 1–5 clips. Choose minimum and maximum durations up to 60
+            seconds. These choices are saved with this upload.
+          </AppText>
+          {[
+            {
+              label: "Number of clips",
+              value: clipCount,
+              change: setClipCount,
+              integer: true,
+            },
+            {
+              label: "Minimum duration (seconds)",
+              value: minimumSeconds,
+              change: setMinimumSeconds,
+              integer: false,
+            },
+            {
+              label: "Maximum duration (seconds)",
+              value: maximumSeconds,
+              change: setMaximumSeconds,
+              integer: false,
+            },
+          ].map((field) => (
+            <View key={field.label} className="gap-2">
+              <AppText variant="label">{field.label}</AppText>
+              <TextInput
+                accessibilityLabel={field.label}
+                value={field.value}
+                onChangeText={field.change}
+                editable={!busy}
+                keyboardType={field.integer ? "number-pad" : "decimal-pad"}
+                maxLength={field.integer ? 1 : 6}
+                className="rounded-xl border border-border px-4 py-3 text-foreground"
+              />
+            </View>
+          ))}
+          <AppText variant="caption" tone="secondary">
+            Enter durations in seconds, using a dot for up to three decimal
+            places. Clip generation is not started by this upload step yet.
+          </AppText>
+        </Surface>
+      )}
       {progress && (
         <View className="gap-4">
           <ProgressMeter value={percentage} label="Uploaded video parts" />

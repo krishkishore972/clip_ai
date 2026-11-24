@@ -155,7 +155,10 @@ func testService(t *testing.T) (*upload.Service, *storeStub) {
 
 func start(t *testing.T, s *upload.Service, size int64) upload.UploadSession {
 	t.Helper()
-	out, err := s.Create(ownerContext(), upload.CreateUploadRequest{Filename: "sample.mp4", ContentType: "video/mp4", SizeBytes: size})
+	out, err := s.Create(ownerContext(), upload.CreateUploadRequest{
+		Filename: "sample.mp4", ContentType: "video/mp4", SizeBytes: size,
+		ClipPreferences: upload.ClipPreferences{CandidateCount: 5, MinDurationMs: 15000, MaxDurationMs: 60000},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -441,7 +444,10 @@ func TestBackendFailures(t *testing.T) {
 			var err error
 			switch op {
 			case "begin":
-				_, err = s.Create(ownerContext(), upload.CreateUploadRequest{Filename: "a.mp4", SizeBytes: 1, ContentType: "video/mp4"})
+				_, err = s.Create(ownerContext(), upload.CreateUploadRequest{
+					Filename: "a.mp4", SizeBytes: 1, ContentType: "video/mp4",
+					ClipPreferences: upload.ClipPreferences{CandidateCount: 5, MinDurationMs: 15000, MaxDurationMs: 60000},
+				})
 			case "sign":
 				_, err = s.SignParts(ownerContext(), accessFor(state), []int{1})
 			case "list":
@@ -495,7 +501,10 @@ func TestCreateInvalidMetadataAndCancellation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Create(ownerContext(), upload.CreateUploadRequest{Filename: "a.mp4", ContentType: "video/mp4", SizeBytes: 1}); !errors.Is(err, io.EOF) {
+	if _, err := s.Create(ownerContext(), upload.CreateUploadRequest{
+		Filename: "a.mp4", ContentType: "video/mp4", SizeBytes: 1,
+		ClipPreferences: upload.ClipPreferences{CandidateCount: 5, MinDurationMs: 15000, MaxDurationMs: 60000},
+	}); !errors.Is(err, io.EOF) {
 		t.Fatal("random source failure ignored")
 	}
 	if len(f.calls) != 0 {

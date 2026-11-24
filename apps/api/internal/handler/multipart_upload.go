@@ -87,28 +87,45 @@ func (h *MultipartUploadHandler) Create(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
+
 	if in.SizeBytes <= 0 || len(in.Filename) == 0 || len(in.Filename) > 255 ||
 		strings.ContainsAny(in.Filename, `/\`) || strings.IndexFunc(in.Filename, unicode.IsControl) >= 0 {
 		h.fail(w, r, http.StatusBadRequest, "invalid_upload", "filename and a positive sizeBytes are required")
 		return
 	}
+
 	if in.SizeBytes > upload.MaxUploadBytes {
 		h.fail(w, r, http.StatusRequestEntityTooLarge, "file_too_large", "file exceeds the 2000000000 byte limit")
 		return
 	}
+
 	want := map[string]string{".mp4": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm"}[strings.ToLower(path.Ext(in.Filename))]
 	if want == "" || in.ContentType != want {
 		h.fail(w, r, http.StatusBadRequest, "unsupported_media", "declare an mp4, mov, or webm video with its matching content type")
 		return
 	}
+
+	if !in.ClipPreferences.Valid() {
+		h.fail(
+			w,
+			r,
+			http.StatusBadRequest,
+			"invalid_clip_preferences",
+			"provide 1–5 clips and ordered duration limits between 1 and 60000 milliseconds",
+		)
+		return
+	}
+
 	if !h.available(w, r) {
 		return
 	}
+
 	out, err := h.service.Create(r.Context(), *in)
 	if err != nil {
 		h.serviceError(w, r, err)
 		return
 	}
+
 	h.respond(w, r, http.StatusCreated, out)
 }
 
@@ -239,6 +256,7 @@ func validPartNumbers(numbers []int) bool {
 
 func decodeUploadRequest[T any](h *MultipartUploadHandler, w http.ResponseWriter, r *http.Request) (*T, bool) {
 	in, err := httpserver.DecodeJSON[*T](w, r)
+
 	if err != nil {
 		switch {
 		case errors.Is(err, httpserver.ErrUnsupportedMediaType):
@@ -250,10 +268,12 @@ func decodeUploadRequest[T any](h *MultipartUploadHandler, w http.ResponseWriter
 		}
 		return nil, false
 	}
+
 	if in == nil {
 		h.fail(w, r, http.StatusBadRequest, "invalid_json", "a JSON object is required")
 		return nil, false
 	}
+
 	return in, true
 }
 

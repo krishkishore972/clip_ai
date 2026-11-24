@@ -37,7 +37,7 @@ func TestUploadRoutesDevelopmentOnly(t *testing.T) {
 			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 			h := server.NewHandler(logger, env, nil, nil)
 			r := httptest.NewRequest(http.MethodPost, "/uploads", strings.NewReader(
-				`{"filename":"sample.mp4","sizeBytes":1024,"contentType":"video/mp4"}`))
+				`{"filename":"sample.mp4","sizeBytes":1024,"contentType":"video/mp4","clipPreferences":{"candidateCount":5,"minDurationMs":15000,"maxDurationMs":60000}}`))
 			r.Header.Set("Content-Type", "application/json")
 			w := httptest.NewRecorder()
 			h.ServeHTTP(w, r)

@@ -14,6 +14,7 @@ import (
 type CompletedAsset struct {
 	ID, Bucket, Key, Filename, ContentType string
 	SizeBytes                              int64
+	ClipPreferences                        *ClipPreferences
 }
 
 type AssetRecorder interface {
@@ -25,7 +26,8 @@ type SQLAssets struct {
 }
 
 // SaveCompleted atomically records the completed asset and its initial
-// validation event. Retries preserve existing ownership and media metadata.
+// validation event, plus signed clip preferences when present. Retries preserve
+// existing ownership, media metadata, preferences and curation execution state.
 func (s SQLAssets) SaveCompleted(
 	ctx context.Context,
 	asset CompletedAsset,
@@ -33,6 +35,9 @@ func (s SQLAssets) SaveCompleted(
 	principal, ok := auth.FromContext(ctx)
 	if !ok {
 		return ErrUnauthenticated
+	}
+	if asset.ClipPreferences != nil && !asset.ClipPreferences.Valid() {
+		return ErrInvalid
 	}
 
 	tx, err := s.DB.BeginTx(ctx, nil)
@@ -94,6 +99,41 @@ func (s SQLAssets) SaveCompleted(
 	}
 	if err != nil {
 		return fmt.Errorf("persist completed asset: %w", err)
+	}
+
+	// Legacy capabilities have no preferences. Do not invent them or backfill
+	// paid curation work for those uploads.
+	if preferences := asset.ClipPreferences; preferences != nil {
+		const saveCurationQuery = `
+			INSERT INTO media_curation_jobs (
+			    asset_id,
+			    candidate_count,
+			    min_duration_ms,
+			    max_duration_ms
+			)
+			VALUES ($1, $2, $3, $4)
+			ON CONFLICT (asset_id) DO UPDATE
+			SET asset_id = EXCLUDED.asset_id
+			WHERE media_curation_jobs.candidate_count = EXCLUDED.candidate_count
+			    AND media_curation_jobs.min_duration_ms = EXCLUDED.min_duration_ms
+			    AND media_curation_jobs.max_duration_ms = EXCLUDED.max_duration_ms
+			RETURNING asset_id
+		`
+		var curationAssetID string
+		err := tx.QueryRowContext(
+			ctx,
+			saveCurationQuery,
+			assetID,
+			preferences.CandidateCount,
+			preferences.MinDurationMs,
+			preferences.MaxDurationMs,
+		).Scan(&curationAssetID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrConflict
+		}
+		if err != nil {
+			return fmt.Errorf("persist curation preferences: %w", err)
+		}
 	}
 
 	var randomID [16]byte

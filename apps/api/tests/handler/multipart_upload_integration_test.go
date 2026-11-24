@@ -145,6 +145,7 @@ func TestStatelessUploadHTTPControlFlow(t *testing.T) {
 	var created upload.UploadSession
 	data := do(http.MethodPost, "/uploads", "", upload.CreateUploadRequest{
 		Filename: "sample.mp4", ContentType: "video/mp4", SizeBytes: upload.PartSizeBytes + 1024,
+		ClipPreferences: upload.ClipPreferences{CandidateCount: 5, MinDurationMs: 15000, MaxDurationMs: 60000},
 	}, http.StatusCreated)
 	if err := json.Unmarshal(data, &created); err != nil || created.UploadToken == "" || created.PartCount != 2 {
 		t.Fatal("invalid create response")

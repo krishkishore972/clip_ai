@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/krishkishore972/clip_ai/internal/auth"
+	"github.com/krishkishore972/clip_ai/internal/upload"
 )
 
 // JSON is valid YAML. Keeping this OpenAPI document JSON-compatible lets these
@@ -65,7 +66,7 @@ func TestUploadContract(t *testing.T) {
 	}
 	for _, value := range []any{
 		handler.CreateUploadRequest{}, handler.SignUploadPartsRequest{}, handler.CompleteUploadRequest{}, handler.CompleteUploadPart{},
-		handler.UploadSession{}, handler.UploadedPart{}, handler.SignedUploadPart{}, handler.SignedUploadParts{},
+		handler.UploadSession{}, handler.UploadedPart{}, handler.SignedUploadPart{}, handler.SignedUploadParts{}, upload.ClipPreferences{},
 	} {
 		typ := reflect.TypeOf(value)
 		schema, ok := spec.Components.Schemas[typ.Name()]
@@ -82,7 +83,7 @@ func TestUploadContract(t *testing.T) {
 				t.Errorf("%s.%s missing from contract", typ.Name(), name)
 			}
 		}
-		if strings.HasSuffix(typ.Name(), "Request") || typ.Name() == "CompleteUploadPart" {
+		if strings.HasSuffix(typ.Name(), "Request") || typ.Name() == "CompleteUploadPart" || typ.Name() == "ClipPreferences" {
 			if schema.AdditionalProperties == nil || *schema.AdditionalProperties {
 				t.Errorf("%s must reject unknown fields", typ.Name())
 			}
