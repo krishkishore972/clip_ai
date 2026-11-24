@@ -62,8 +62,7 @@ func TestSignedPreferencesReachCompletion(t *testing.T) {
 	if _, err := s.Complete(ownerContext(), accessFor(state), in); err != nil {
 		t.Fatal(err)
 	}
-	if len(f.records.saved) != 1 || f.records.saved[0].ClipPreferences == nil ||
-		*f.records.saved[0].ClipPreferences != expected {
+	if len(f.records.saved) != 1 || f.records.saved[0].ClipPreferences != expected {
 		t.Fatal("completion did not persist signed preferences")
 	}
 	f.records.err = upload.ErrConflict
@@ -72,7 +71,7 @@ func TestSignedPreferencesReachCompletion(t *testing.T) {
 	}
 }
 
-func TestClipPreferenceTokenTamperingAndLegacyCompatibility(t *testing.T) {
+func TestClipPreferenceTokenTamperingAndRequiredField(t *testing.T) {
 	t.Parallel()
 	s, f := testService(t)
 	state := start(t, s, 1024)
@@ -99,17 +98,14 @@ func TestClipPreferenceTokenTamperingAndLegacyCompatibility(t *testing.T) {
 		t.Fatal("invalid preferences reached S3")
 	}
 	delete(claims, "clipPreferences")
-	legacy := upload.Access{
+	missing := upload.Access{
 		UploadID: state.UploadID,
 		Token:    signTokenFixture(t, claims, testConfig().SigningSecret),
 	}
-	f.object = &storage.ObjectInfo{SizeBytes: 1024, ContentType: "video/mp4"}
-	if _, err := s.Complete(ownerContext(), legacy, upload.CompleteUploadRequest{
-		Parts: []upload.CompleteUploadPart{{PartNumber: 1, ETag: "tag"}},
-	}); err != nil {
-		t.Fatal(err)
+	if _, err := s.Get(ownerContext(), missing); !errors.Is(err, upload.ErrToken) {
+		t.Fatal("capability without preferences accepted")
 	}
-	if len(f.records.saved) != 1 || f.records.saved[0].ClipPreferences != nil {
-		t.Fatal("legacy capability acquired invented preferences")
+	if len(f.calls) != before {
+		t.Fatal("preference-less capability reached S3")
 	}
 }

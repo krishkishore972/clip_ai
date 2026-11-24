@@ -39,6 +39,10 @@ func TestCurationMigration(t *testing.T) {
 	// This helper verifies a uniquely named schema before running any migration.
 	// Supply only a disposable, direct/session TEST_DATABASE_URL.
 	ctx, pool, provider := transcriptFileDatabase(t)
+	// Start from the pre-curation schema so the Up below is observable.
+	if result, err := provider.Down(ctx); err != nil || result.Source.Version != 9 {
+		t.Fatalf("pre-curation rollback failed: %v", err)
+	}
 	insertCurationAsset(t, ctx, pool, "existing-before-curation")
 
 	up, err := provider.UpTo(ctx, 9)

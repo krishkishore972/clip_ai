@@ -34,7 +34,9 @@ func transcriptFileDatabase(t *testing.T) (context.Context, *sql.DB, *goose.Prov
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := provider.UpTo(ctx, 8); err != nil {
+	// processTestDatabase already reached fixtureSchemaVersion; this call only
+	// keeps the transcript fixtures explicit about the schema they need.
+	if _, err := provider.UpTo(ctx, fixtureSchemaVersion); err != nil {
 		t.Fatal(err)
 	}
 	if err := transcription.CheckFileSchema(ctx, pool); err != nil {
@@ -279,14 +281,18 @@ func TestTranscriptFileFeatureDisabled(t *testing.T) {
 
 func TestTranscriptFileMigrationEmptyRollback(t *testing.T) {
 	ctx, _, provider := transcriptFileDatabase(t)
+	// Drop the empty curation schema first; this test targets migration 8.
+	if result, err := provider.Down(ctx); err != nil || result.Source.Version != 9 {
+		t.Fatalf("empty curation rollback failed: %v", err)
+	}
 	result, err := provider.Down(ctx)
 	if err != nil || result.Source.Version != 8 {
 		t.Fatalf("empty rollback failed: %v", err)
 	}
-	if _, err := provider.UpTo(ctx, 8); err != nil {
+	if _, err := provider.UpTo(ctx, 9); err != nil {
 		t.Fatal(err)
 	}
-	if up, err := provider.UpTo(ctx, 8); err != nil || len(up) != 0 {
+	if up, err := provider.UpTo(ctx, 9); err != nil || len(up) != 0 {
 		t.Fatal("repeat up not a no-op")
 	}
 }

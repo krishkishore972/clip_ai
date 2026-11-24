@@ -35,6 +35,9 @@ func testCompletedAssetOutbox(t *testing.T, ctx context.Context, pool *sql.DB) {
 		Filename:    "original.mp4",
 		ContentType: "video/mp4",
 		SizeBytes:   1024,
+		ClipPreferences: upload.ClipPreferences{
+			CandidateCount: 1, MinDurationMs: 1, MaxDurationMs: 1000,
+		},
 	}
 
 	t.Run("atomic insert and concurrent retry deduplication", func(t *testing.T) {

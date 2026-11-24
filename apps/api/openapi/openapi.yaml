@@ -565,7 +565,7 @@
         "type": "object",
         "additionalProperties": false,
         "required": ["candidateCount", "minDurationMs", "maxDurationMs"],
-        "description": "Explicit upload-selected preferences, bound into the signed upload capability. minDurationMs must not exceed maxDurationMs; checked at runtime. Completion persists these preferences with the asset and validation event atomically, without enqueueing curation. Already-issued v3 tokens lacking preferences remain usable without creating a curation job; no defaults/backfill.",
+        "description": "Required on every create. Explicit upload-selected preferences, bound into the signed upload capability. minDurationMs must not exceed maxDurationMs; checked at runtime. Capabilities without valid preferences are rejected, and no default is invented. Completion persists these preferences with the asset, validation event and pending curation job atomically.",
         "properties": {
           "candidateCount": { "type": "integer", "minimum": 1, "maximum": 5 },
           "minDurationMs": {

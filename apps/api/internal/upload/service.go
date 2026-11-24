@@ -121,8 +121,6 @@ func (s *Service) Create(ctx context.Context, in CreateUploadRequest) (UploadSes
 		return UploadSession{}, fmt.Errorf("upload: generate ID: %w", err)
 	}
 
-	preferences := in.ClipPreferences
-
 	c := claims{
 		V:               3,
 		UserID:          p.UserID,
@@ -133,7 +131,7 @@ func (s *Service) Create(ctx context.Context, in CreateUploadRequest) (UploadSes
 		PartSize:        PartSizeBytes,
 		Type:            in.ContentType,
 		ExpiresAt:       s.now().Add(s.tokenTTL).Unix(),
-		ClipPreferences: &preferences,
+		ClipPreferences: in.ClipPreferences,
 	}
 
 	c.Key = "dev-uploads/" + c.ID + "/source" + ext

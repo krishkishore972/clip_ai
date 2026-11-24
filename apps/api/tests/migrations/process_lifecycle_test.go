@@ -24,6 +24,7 @@ func claimProcessFixture(t *testing.T, ctx context.Context, pool *sql.DB, id str
 	completed := upload.CompletedAsset{
 		ID: id, Bucket: "fixture-bucket", Key: id + ".mp4",
 		ContentType: "video/mp4", SizeBytes: 1024,
+		ClipPreferences: upload.ClipPreferences{CandidateCount: 1, MinDurationMs: 1, MaxDurationMs: 1000},
 	}
 	if err := (upload.SQLAssets{DB: pool}).SaveCompleted(auth.WithPrincipal(ctx, principal), completed); err != nil {
 		t.Fatal(err)

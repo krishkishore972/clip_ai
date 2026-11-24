@@ -20,6 +20,14 @@ import (
 	"github.com/pressly/goose/v3"
 )
 
+// fixtureSchemaVersion is the schema level shared fixtures assume. Production
+// code that writes a new table or required column must raise it in the same
+// change that adds the migration, otherwise these fixtures fail with "relation
+// does not exist" instead of exercising the current schema. Tests that assert a
+// migration transition (Up/Down between specific versions) must keep their own
+// literal version and must not follow this constant.
+const fixtureSchemaVersion = 9
+
 func processTestDatabase(t *testing.T) (context.Context, *sql.DB) {
 	t.Helper()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
@@ -64,7 +72,7 @@ func processTestDatabase(t *testing.T) (context.Context, *sql.DB) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := provider.UpTo(ctx, 6); err != nil {
+	if _, err := provider.UpTo(ctx, fixtureSchemaVersion); err != nil {
 		t.Fatal(err)
 	}
 	return ctx, pool
@@ -80,6 +88,7 @@ func TestProcessClaimFreshUpload(t *testing.T) {
 	completed := upload.CompletedAsset{
 		ID: "fresh-process-claim", Bucket: "fixture-bucket", Key: "fixture.mp4",
 		ContentType: "video/mp4", SizeBytes: 1024,
+		ClipPreferences: upload.ClipPreferences{CandidateCount: 1, MinDurationMs: 1, MaxDurationMs: 1000},
 	}
 	if err := assets.SaveCompleted(auth.WithPrincipal(ctx, principal), completed); err != nil {
 		t.Fatal(err)

@@ -29,7 +29,7 @@ func TestCompletedUploadPreferences(t *testing.T) {
 	asset := upload.CompletedAsset{
 		ID: "preferences-asset", Bucket: "fixture-bucket", Key: "preferences/original.mp4",
 		Filename: "original.mp4", ContentType: "video/mp4", SizeBytes: 1024,
-		ClipPreferences: &preferences,
+		ClipPreferences: preferences,
 	}
 	if err := records.SaveCompleted(ownerCtx, asset); err != nil {
 		t.Fatal(err)
@@ -71,7 +71,7 @@ func TestCompletedUploadPreferences(t *testing.T) {
 			{CandidateCount: 5, MinDurationMs: 15000, MaxDurationMs: 59000},
 		} {
 			changed := asset
-			changed.ClipPreferences = &p
+			changed.ClipPreferences = p
 			if err := records.SaveCompleted(ownerCtx, changed); !errors.Is(err, upload.ErrConflict) {
 				t.Fatalf("changed preferences did not conflict: %v", err)
 			}
@@ -85,9 +85,9 @@ func TestCompletedUploadPreferences(t *testing.T) {
 			t.Fatal("unauthenticated completion accepted")
 		}
 		insertCurationAsset(t, ctx, pool, "preferences-null-owner")
-		legacy := asset
-		legacy.ID, legacy.Key = "preferences-null-owner", "preferences-null-owner/original.mp4"
-		if err := records.SaveCompleted(ownerCtx, legacy); !errors.Is(err, upload.ErrNotFound) {
+		unowned := asset
+		unowned.ID, unowned.Key = "preferences-null-owner", "preferences-null-owner/original.mp4"
+		if err := records.SaveCompleted(ownerCtx, unowned); !errors.Is(err, upload.ErrNotFound) {
 			t.Fatal("NULL-owned asset was adopted")
 		}
 	})
@@ -148,18 +148,19 @@ func TestCompletedUploadPreferences(t *testing.T) {
 			t.Fatal("completion retry reset curation")
 		}
 	})
-	t.Run("legacy completion skips curation", func(t *testing.T) {
-		legacy := asset
-		legacy.ID, legacy.Key = "preferences-legacy", "preferences-legacy/original.mp4"
-		legacy.ClipPreferences = nil
-		if err := records.SaveCompleted(ownerCtx, legacy); err != nil {
-			t.Fatal(err)
+	t.Run("completion without preferences is rejected", func(t *testing.T) {
+		missing := asset
+		missing.ID, missing.Key = "preferences-missing", "preferences-missing/original.mp4"
+		missing.ClipPreferences = upload.ClipPreferences{}
+		if err := records.SaveCompleted(ownerCtx, missing); !errors.Is(err, upload.ErrInvalid) {
+			t.Fatal("completion without preferences accepted")
 		}
+		assertAssetEventCounts(t, ctx, pool, missing.ID, 0, 0)
 		var count int
 		if err := pool.QueryRowContext(ctx, `
 			SELECT COUNT(*) FROM media_curation_jobs WHERE asset_id = $1
-		`, legacy.ID).Scan(&count); err != nil || count != 0 {
-			t.Fatal("legacy upload received invented curation work")
+		`, missing.ID).Scan(&count); err != nil || count != 0 {
+			t.Fatal("rejected completion created curation work")
 		}
 	})
 	for _, stage := range []string{"curation", "outbox"} {

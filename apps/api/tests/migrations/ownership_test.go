@@ -55,6 +55,16 @@ func testIdentityAndOwnership(t *testing.T, ctx context.Context, pool *sql.DB, p
 		t.Fatalf("ownership reapply: %v", err)
 	}
 	testDirectOwnershipMigration(t, ctx, pool, provider)
+	if results, err := provider.UpTo(ctx, 5); err != nil || len(results) != 1 || results[0].Source.Version != 5 {
+		t.Fatalf("validation fixture migration 5 Up: %v", err)
+	}
+	if results, err := provider.UpTo(ctx, 5); err != nil || len(results) != 0 {
+		t.Fatalf("repeat validation fixture Up should be a no-op: %v", err)
+	}
+	// Completion persists curation preferences, introduced by migration 9.
+	if _, err := provider.UpTo(ctx, 9); err != nil {
+		t.Fatalf("curation fixture migration 9 Up: %v", err)
+	}
 
 	store := auth.Store{DB: pool}
 	const concurrency = 16
@@ -108,7 +118,11 @@ func testIdentityAndOwnership(t *testing.T, ctx context.Context, pool *sql.DB, p
 	}
 	assets := upload.SQLAssets{DB: pool}
 	ownedCtx := auth.WithPrincipal(ctx, owner)
-	in := upload.CompletedAsset{ID: "owned", Bucket: "fixture-bucket", Key: "original.mp4", Filename: "test.mp4", ContentType: "video/mp4", SizeBytes: 1024}
+	in := upload.CompletedAsset{
+		ID: "owned", Bucket: "fixture-bucket", Key: "original.mp4", Filename: "test.mp4",
+		ContentType: "video/mp4", SizeBytes: 1024,
+		ClipPreferences: upload.ClipPreferences{CandidateCount: 1, MinDurationMs: 1, MaxDurationMs: 1000},
+	}
 	for range 2 {
 		if err := assets.SaveCompleted(ownedCtx, in); err != nil {
 			t.Fatal(err)
@@ -164,15 +178,7 @@ func testIdentityAndOwnership(t *testing.T, ctx context.Context, pool *sql.DB, p
 		testOutboxDispatcher(t, ctx, pool)
 	})
 	t.Run("owned media status", func(t *testing.T) {
-		// Earlier checks intentionally exercise schema version 4. Status reads
-		// require the validation columns introduced by migration 5.
-		results, err := provider.UpTo(ctx, 5)
-		if err != nil || len(results) != 1 || results[0].Source.Version != 5 {
-			t.Fatalf("validation status fixture migration 5 Up: results=%v error=%v", results, err)
-		}
-		if results, err := provider.UpTo(ctx, 5); err != nil || len(results) != 0 {
-			t.Fatalf("repeat validation status fixture Up should be a no-op: results=%v error=%v", results, err)
-		}
+		// Migration 5, which adds the validation columns, was applied above.
 		testMediaStatus(t, ctx, pool)
 	})
 }
