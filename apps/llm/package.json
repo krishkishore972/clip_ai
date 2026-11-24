@@ -1,0 +1,30 @@
+{
+  "name": "llm",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "check-types": "tsc -p tsconfig.test.json --noEmit",
+    "test": "tsx --test tests/*.test.ts",
+    "gen:api": "node scripts/generate-api-types.mjs",
+    "gen:api:check": "node scripts/generate-api-types.mjs --check"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "workspace:*",
+    "@types/express": "^5.0.6",
+    "@types/node": "^24.19.2",
+    "tsx": "^4.23.15",
+    "typescript": "7.0.2"
+  },
+  "dependencies": {
+    "express": "^5.3.0",
+    "groq-sdk": "^1.6.0",
+    "zod": "^4.6.7"
+  }
+}

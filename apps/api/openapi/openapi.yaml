@@ -2,11 +2,176 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Video AI API",
-    "version": "0.7.0",
+    "version": "0.8.0",
     "description": "Authenticated personal-only mobile API. Clerk session bearer tokens resolve PostgreSQL users; assets belong directly to users. Upload routes remain development-only and require DEV_S3_UPLOAD_ENABLED=true for storage. V3 Upload-Token capabilities additionally bind user ownership; legacy v1/v2 tokens are rejected. Verified completed uploads are persisted with uploaded_unvalidated status. Each create starts a new upload; no create deduplication guarantee. No video bytes are accepted here. Never send authentication headers to S3."
   },
   "security": [{ "ClerkSession": [] }],
   "paths": {
+    "/internal/curate": {
+      "post": {
+        "operationId": "curateTranscript",
+        "servers": [
+          {
+            "url": "http://127.0.0.1:8090",
+            "description": "Private LLM service, not the Go API; use private TLS across hosts."
+          }
+        ],
+        "security": [{ "LLMServiceBearer": [] }],
+        "description": "Server-to-server curation, enabled by default. Startup requires Groq credentials and a private service token, never a Clerk token. Explicit CURATION_ENABLED=false selects health-only operation and this route returns 503. One active request per process, otherwise 503 BUSY. Authenticate before parsing; application/json only, no compressed bodies, 1 MiB body cap. Complete serialized prompt messages are capped at 100,000 UTF-8 bytes; no truncation/chunking. Overall deadline 65 seconds, at most two 30-second SDK attempts. All responses are no-store. Transcript text is untrusted data. No persistence, ownership authorization, media rendering or acceptance occurs here; Go must authorize ownership before calling and validate returned ranges against the source. Runtime also enforces contiguous zero-based indexes, nonblank text, ordered starts, positive word intervals, ordered duration constraints, requested candidate count, range/duration/source-start checks and duplicate rejection. Overlap is allowed; fewer or no candidates may be returned. Decoded content cap 32 KiB is not a transport-body cap.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["transcriptHash", "words", "constraints"],
+                "properties": {
+                  "transcriptHash": {
+                    "type": "string",
+                    "pattern": "^sha256:[a-f0-9]{64}$"
+                  },
+                  "words": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 12000,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["index", "text", "startMs", "endMs"],
+                      "properties": {
+                        "index": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "text": {
+                          "type": "string",
+                          "minLength": 1,
+                          "description": "Nonblank; at most 512 UTF-8 bytes, enforced at runtime without rewriting text.",
+                          "x-maxUtf8Bytes": 512
+                        },
+                        "startMs": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991,
+                          "description": "Already source-aligned; may be negative. Negative-start candidate ranges are rejected."
+                        },
+                        "endMs": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        }
+                      }
+                    }
+                  },
+                  "constraints": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "candidateCount",
+                      "minDurationMs",
+                      "maxDurationMs"
+                    ],
+                    "properties": {
+                      "candidateCount": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 5
+                      },
+                      "minDurationMs": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 60000
+                      },
+                      "maxDurationMs": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 60000
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Validated proposals only, not captioned previews or accepted clips.",
+            "headers": {
+              "Cache-Control": {
+                "schema": { "type": "string", "const": "no-store" }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["candidates"],
+                  "properties": {
+                    "candidates": {
+                      "type": "array",
+                      "maxItems": 5,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "startWordIndex",
+                          "endWordIndexExclusive",
+                          "title",
+                          "hook",
+                          "reason"
+                        ],
+                        "properties": {
+                          "startWordIndex": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "endWordIndexExclusive": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 9007199254740991
+                          },
+                          "title": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "Nonblank; at most 1000 JavaScript UTF-16 code units.",
+                            "x-maxUtf16CodeUnits": 1000
+                          },
+                          "hook": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "Nonblank; at most 1000 JavaScript UTF-16 code units.",
+                            "x-maxUtf16CodeUnits": 1000
+                          },
+                          "reason": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "Nonblank; at most 1000 JavaScript UTF-16 code units.",
+                            "x-maxUtf16CodeUnits": 1000
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/LLMCurationError" },
+          "401": { "$ref": "#/components/responses/LLMCurationError" },
+          "413": { "$ref": "#/components/responses/LLMCurationError" },
+          "415": { "$ref": "#/components/responses/LLMCurationError" },
+          "500": { "$ref": "#/components/responses/LLMCurationError" },
+          "502": { "$ref": "#/components/responses/LLMCurationError" },
+          "503": { "$ref": "#/components/responses/LLMCurationError" },
+          "504": { "$ref": "#/components/responses/LLMCurationError" }
+        }
+      }
+    },
     "/me": {
       "get": {
         "operationId": "getCurrentUser",
@@ -235,6 +400,11 @@
   },
   "components": {
     "securitySchemes": {
+      "LLMServiceBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Private CURATION_SERVICE_TOKEN: 32–256 base64url characters. Server-to-server only; not a Clerk identity and never exposed to clients. No Go endpoint accepts this scheme."
+      },
       "ClerkSession": {
         "type": "http",
         "scheme": "bearer",
@@ -259,6 +429,19 @@
       }
     },
     "responses": {
+      "LLMCurationError": {
+        "description": "Sanitized LLM service error. 400 INVALID_INPUT/INVALID_JSON; 401 UNAUTHENTICATED; 413 BODY_TOO_LARGE/PROMPT_TOO_LARGE; 415 UNSUPPORTED_MEDIA_TYPE; 500 INTERNAL_ERROR; 502 PROVIDER_FAILED/INVALID_RESPONSE; 503 BUSY/SERVICE_UNAVAILABLE/CONFIGURATION/CANCELLED; 504 TIMEOUT. BUSY includes Retry-After: 1.",
+        "headers": {
+          "Cache-Control": {
+            "schema": { "type": "string", "const": "no-store" }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/APIError" }
+          }
+        }
+      },
       "UploadSession": {
         "description": "Upload session; not an accepted/validated media asset",
         "headers": {

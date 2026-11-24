@@ -1,0 +1,14 @@
+{
+  "task": "curate",
+  "version": "v1",
+  "promptFile": "v1.md",
+  "messageRole": "system",
+  "provider": "groq",
+  "modelFamily": "gpt-oss",
+  "model": "openai/gpt-oss-120b",
+  "modelSelectionStatus": "user-selected",
+  "schemaFile": "../../schemas/curation.ts",
+  "schemaFactory": "createCurationSchemas",
+  "inputSchema": "requestSchema",
+  "outputSchema": "responseSchema"
+}
