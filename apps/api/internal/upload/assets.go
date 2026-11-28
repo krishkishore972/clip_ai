@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	"github.com/krishkishore972/clip_ai/internal/auth"
+	"github.com/krishkishore972/clip_ai/internal/curation"
 )
 
 type CompletedAsset struct {
@@ -110,9 +111,10 @@ func (s SQLAssets) SaveCompleted(
 		    asset_id,
 		    candidate_count,
 		    min_duration_ms,
-		    max_duration_ms
+		    max_duration_ms,
+		    prompt_version
 		)
-		VALUES ($1, $2, $3, $4)
+		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (asset_id) DO UPDATE
 		SET asset_id = EXCLUDED.asset_id
 		WHERE media_curation_jobs.candidate_count = EXCLUDED.candidate_count
@@ -128,6 +130,7 @@ func (s SQLAssets) SaveCompleted(
 		asset.ClipPreferences.CandidateCount,
 		asset.ClipPreferences.MinDurationMs,
 		asset.ClipPreferences.MaxDurationMs,
+		curation.PromptVersion,
 	).Scan(&curationAssetID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrConflict

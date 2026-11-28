@@ -132,7 +132,9 @@ func (c *Client) TranscribeFileWithLanguage(ctx context.Context, filePath, langu
 			return nil, ctx.Err()
 		}
 		if errors.Is(err, ErrResponse) {
-			return nil, ErrResponse
+			// Preserve only our closed diagnostic value, not the SDK wrapper,
+			// which can contain request/provider details.
+			return nil, &outputError{diagnostic: DiagnoseOutput(err)}
 		}
 		var status *sdkerrors.StatusError
 		if errors.As(err, &status) && status.Resp != nil {
@@ -145,10 +147,14 @@ func (c *Client) TranscribeFileWithLanguage(ctx context.Context, filePath, langu
 		}
 		return nil, ErrProvider
 	}
-	if result == nil || result.Metadata == nil || result.Results == nil ||
-		len(result.Results.Channels) == 0 ||
-		len(result.Results.Channels[0].Alternatives) == 0 {
-		return nil, ErrResponse
+	if result == nil || result.Metadata == nil || result.Results == nil {
+		return nil, invalidOutput("RESPONSE_STRUCTURE", -1)
+	}
+	if len(result.Results.Channels) == 0 {
+		return nil, invalidOutput("RESPONSE_CHANNELS", -1)
+	}
+	if len(result.Results.Channels[0].Alternatives) == 0 {
+		return nil, invalidOutput("RESPONSE_ALTERNATIVES", -1)
 	}
 	return result, nil
 }
@@ -171,13 +177,16 @@ func (t boundedTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 		data, readErr := io.ReadAll(res.Body)
 		closeErr := res.Body.Close()
 		if errors.Is(readErr, ErrResponse) {
-			return nil, ErrResponse
+			return nil, &outputError{diagnostic: DiagnoseOutput(readErr)}
 		}
 		if readErr != nil || closeErr != nil {
 			return nil, ErrProvider
 		}
-		if !utf8.Valid(data) || !json.Valid(data) {
-			return nil, ErrResponse
+		if !utf8.Valid(data) {
+			return nil, invalidOutput("RESPONSE_UTF8", -1)
+		}
+		if !json.Valid(data) {
+			return nil, invalidOutput("RESPONSE_JSON", -1)
 		}
 		res.Body = io.NopCloser(bytes.NewReader(data))
 	}
@@ -194,7 +203,7 @@ func (b *boundedBody) Read(p []byte) (int, error) {
 		var extra [1]byte
 		n, err := b.ReadCloser.Read(extra[:])
 		if n > 0 {
-			return 0, ErrResponse
+			return 0, invalidOutput("RESPONSE_SIZE_LIMIT", -1)
 		}
 		return 0, err
 	}

@@ -226,7 +226,7 @@ test("authenticated HTTP request runs the real adapter with an offline provider"
   const curate = await createCurator(
     {
       promptPath: fileURLToPath(
-        new URL("../src/prompts/curate/v1.md", import.meta.url),
+        new URL("../src/prompts/curate/v2.md", import.meta.url),
       ),
     },
     async () => ({

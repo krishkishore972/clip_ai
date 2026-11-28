@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/krishkishore972/clip_ai/internal/auth"
+	"github.com/krishkishore972/clip_ai/internal/curation"
 	"github.com/krishkishore972/clip_ai/internal/upload"
 )
 
@@ -36,13 +37,23 @@ func TestCompletedUploadPreferences(t *testing.T) {
 	}
 	assertAssetEventCounts(t, ctx, pool, asset.ID, 1, 1)
 	var stored upload.ClipPreferences
-	var state string
+	var state, promptVersion string
 	if err := pool.QueryRowContext(ctx, `
-		SELECT candidate_count, min_duration_ms, max_duration_ms, status
+		SELECT
+		    candidate_count,
+		    min_duration_ms,
+		    max_duration_ms,
+		    status,
+		    prompt_version
 		FROM media_curation_jobs
 		WHERE asset_id = $1
-	`, asset.ID).Scan(&stored.CandidateCount, &stored.MinDurationMs, &stored.MaxDurationMs, &state); err != nil ||
-		stored != preferences || state != "pending" {
+	`, asset.ID).Scan(
+		&stored.CandidateCount,
+		&stored.MinDurationMs,
+		&stored.MaxDurationMs,
+		&state,
+		&promptVersion,
+	); err != nil || stored != preferences || state != "pending" || promptVersion != curation.PromptVersion {
 		t.Fatal("signed upload preferences not persisted as pending")
 	}
 	t.Run("concurrent completion retries", func(t *testing.T) {

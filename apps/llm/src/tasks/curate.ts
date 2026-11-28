@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import type { ChatCompletionCreateParamsNonStreaming } from "groq-sdk/resources/chat/completions.js";
 import { z } from "zod";
 import { CURATION_BUDGETS, CURATION_LIMITS } from "../config/curation.js";
+import { compactCurationInput } from "./curation-input.js";
 import {
   createCurationSchemas,
   curationLimitsSchema,
@@ -82,7 +83,7 @@ export class CurationError extends Error {
   }
 }
 
-// Resolve promptPath explicitly to the shipped v1.md artifact. This avoids
+// Resolve promptPath explicitly to the shipped v2.md artifact. This avoids
 // assuming tsc copies Markdown into dist; the caller must ship that file.
 export async function createCurator(
   input: CuratorOptions,
@@ -127,7 +128,10 @@ export async function createCurator(
 
     const messages: ChatCompletionCreateParamsNonStreaming["messages"] = [
       { role: "system", content: prompt },
-      { role: "user", content: JSON.stringify(request.data) },
+      {
+        role: "user",
+        content: JSON.stringify(compactCurationInput(request.data)),
+      },
     ];
     // Count the entire serialized message list, including role/JSON overhead.
     // This is a byte budget, not a model-specific tokenizer measurement.

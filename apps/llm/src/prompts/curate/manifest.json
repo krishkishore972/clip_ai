@@ -1,7 +1,7 @@
 {
   "task": "curate",
-  "version": "v1",
-  "promptFile": "v1.md",
+  "version": "v2",
+  "promptFile": "v2.md",
   "messageRole": "system",
   "provider": "groq",
   "modelFamily": "gpt-oss",
@@ -10,5 +10,6 @@
   "schemaFile": "../../schemas/curation.ts",
   "schemaFactory": "createCurationSchemas",
   "inputSchema": "requestSchema",
+  "providerInputProjection": "../../tasks/curation-input.ts",
   "outputSchema": "responseSchema"
 }

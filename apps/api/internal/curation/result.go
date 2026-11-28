@@ -12,7 +12,7 @@ import (
 
 const (
 	Model         = "openai/gpt-oss-120b"
-	PromptVersion = "v1"
+	PromptVersion = "v2"
 )
 
 // Proposal contains only model-proposed word ranges and display metadata.

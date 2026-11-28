@@ -12,7 +12,7 @@ async function main(): Promise<void> {
     const curate = await createCurator({
       promptPath:
         env.CURATION_PROMPT_PATH ??
-        fileURLToPath(new URL("../src/prompts/curate/v1.md", import.meta.url)),
+        fileURLToPath(new URL("../src/prompts/curate/v2.md", import.meta.url)),
     });
     service = { token, curate };
   }

@@ -182,6 +182,7 @@ func (h *TranscriptionHandler) process(ctx context.Context, claim transcription.
 		case errors.Is(err, transcription.ErrProviderRejected), errors.Is(err, transcription.ErrLanguage):
 			return nil, "TRANSCRIPTION_PROVIDER_REJECTED", false
 		case errors.Is(err, transcription.ErrResponse):
+			logTranscriptionInvalidOutput(logger, "response", err)
 			return nil, "TRANSCRIPTION_INVALID_OUTPUT", false
 		case errors.Is(err, context.DeadlineExceeded):
 			return nil, "TRANSCRIPTION_TIMEOUT", true
@@ -191,11 +192,19 @@ func (h *TranscriptionHandler) process(ctx context.Context, claim transcription.
 	}
 	doc, err := transcription.Normalize(result, claim)
 	if err != nil {
+		logTranscriptionInvalidOutput(logger, "normalization", err)
 		return nil, "TRANSCRIPTION_INVALID_OUTPUT", false
 	}
 	data, err := doc.JSON()
 	if err != nil {
+		logTranscriptionInvalidOutput(logger, "serialization", err)
 		return nil, "TRANSCRIPTION_INVALID_OUTPUT", false
+	}
+	if doc.Corrections.Count > 0 {
+		logger.Info("transcription word ends corrected",
+			"correction_count", doc.Corrections.Count,
+			"max_adjustment_ms", doc.Corrections.MaxAdjustmentMs,
+		)
 	}
 	logger.Info("transcription stage completed", "stage", "provider")
 	output := filepath.Join(dir, "transcript.json")
@@ -218,6 +227,29 @@ func (h *TranscriptionHandler) process(ctx context.Context, claim transcription.
 	return &transcription.Publication{
 		Object: object, WordCount: len(doc.Words), DurationMs: doc.AudioDurationMs,
 	}, "", false
+}
+
+func logTranscriptionInvalidOutput(logger *slog.Logger, stage string, err error) {
+	diagnostic := transcription.DiagnoseOutput(err)
+	fields := []any{"code", "TRANSCRIPTION_INVALID_OUTPUT", "validation_stage", stage, "reason", diagnostic.Reason}
+	if diagnostic.WordIndex >= 0 {
+		fields = append(fields, "word_index", diagnostic.WordIndex)
+	}
+	if diagnostic.Reason == "AUDIO_DURATION_MISMATCH" {
+		fields = append(fields,
+			"expected_duration_ms", diagnostic.ExpectedDurationMs,
+			"observed_duration_ms", diagnostic.ObservedDurationMs,
+		)
+	}
+	if diagnostic.Reason == "WORD_AUDIO_BOUNDS" {
+		fields = append(fields,
+			"word_end_seconds", diagnostic.WordEndSeconds,
+			"audio_duration_seconds", diagnostic.AudioDurationSeconds,
+			"overrun_seconds", diagnostic.OverrunSeconds,
+			"allowed_overrun_ms", diagnostic.AllowedOverrunMs,
+		)
+	}
+	logger.Warn("transcription output validation failed", fields...)
 }
 
 func (h *TranscriptionHandler) Drain(ctx context.Context) error {

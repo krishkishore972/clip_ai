@@ -101,7 +101,7 @@ func TestValidateResult(t *testing.T) {
 			func(c *curation.Claim) { c.TranscriptWordCount++ },
 			func(c *curation.Claim) { c.CandidateCount = 0 },
 			func(c *curation.Claim) { c.Model = "unapproved" },
-			func(c *curation.Claim) { c.PromptVersion = "v2" },
+			func(c *curation.Claim) { c.PromptVersion = "v999" },
 		} {
 			changed := c
 			mutate(&changed)

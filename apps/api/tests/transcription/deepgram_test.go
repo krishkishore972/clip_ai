@@ -211,8 +211,18 @@ func TestTranscribeSanitizesFailures(t *testing.T) {
 					Body:       io.NopCloser(strings.NewReader(tc.body)),
 				}, nil
 			})
-			if _, err := c.TranscribeFile(context.Background(), localAudio(t)); !errors.Is(err, tc.want) {
+			_, err := c.TranscribeFile(context.Background(), localAudio(t))
+			if !errors.Is(err, tc.want) {
 				t.Fatalf("unexpected safe error: %v", err)
+			}
+			if want := map[string]string{
+				"malformed JSON": "RESPONSE_JSON", "trailing JSON": "RESPONSE_JSON",
+				"invalid UTF8": "RESPONSE_UTF8", "missing results": "RESPONSE_STRUCTURE",
+			}[tc.name]; want != "" && transcription.DiagnoseOutput(err).Reason != want {
+				t.Fatalf("SDK lost safe diagnostic: %+v", transcription.DiagnoseOutput(err))
+			}
+			if strings.Contains(err.Error(), "private-provider-data") {
+				t.Fatal("provider content leaked through diagnostic")
 			}
 			if calls != 1 {
 				t.Fatal("SDK request was retried or redirected")
@@ -229,8 +239,12 @@ func TestTranscribeBoundsSDKResponse(t *testing.T) {
 			Body:       io.NopCloser(io.LimitReader(repeatingByte(' '), transcription.MaxDocumentBytes+1)),
 		}, nil
 	})
-	if _, err := c.TranscribeFile(context.Background(), localAudio(t)); !errors.Is(err, transcription.ErrResponse) {
+	_, err := c.TranscribeFile(context.Background(), localAudio(t))
+	if !errors.Is(err, transcription.ErrResponse) {
 		t.Fatalf("oversized SDK response accepted: %v", err)
+	}
+	if transcription.DiagnoseOutput(err).Reason != "RESPONSE_SIZE_LIMIT" {
+		t.Fatalf("missing size diagnostic: %+v", transcription.DiagnoseOutput(err))
 	}
 }
 

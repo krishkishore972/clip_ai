@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { readFile } from "node:fs/promises";
 import Groq from "groq-sdk";
 import { CURATION_BUDGETS } from "../src/config/curation.js";
+import { compactCurationInput } from "../src/tasks/curation-input.js";
 import {
   createCurator,
   CurationError,
@@ -13,7 +15,7 @@ import {
 const options = {
   model: "openai/gpt-oss-120b",
   promptPath: fileURLToPath(
-    new URL("../src/prompts/curate/v1.md", import.meta.url),
+    new URL("../src/prompts/curate/v2.md", import.meta.url),
   ),
   limits: {
     maxCandidates: 3,
@@ -65,13 +67,22 @@ function hasCode(code: CurationError["code"]) {
     error instanceof CurationError && error.code === code;
 }
 
-test("loads v1, sends JSON with bounded options and permits overlap", async () => {
+test("loads v2, sends compact arrays with bounded options and permits overlap", async () => {
   const candidates = [candidate, { ...candidate, endWordIndexExclusive: 3 }];
   const curate = await createCurator(options, async (body, config) => {
     assert.equal(body.model, options.model);
     assert.equal(body.messages[0]?.role, "system");
     assert.match(String(body.messages[0]?.content), /untrusted/);
-    assert.equal(body.messages[1]?.content, JSON.stringify(request));
+    assert.equal(
+      body.messages[1]?.content,
+      JSON.stringify({
+        transcriptHash: request.transcriptHash,
+        words: ["मेरे", "मित्र", "कैसे"],
+        startsMs: [0, 320, 560],
+        endsMs: [1000, 560, 960],
+        constraints: request.constraints,
+      }),
+    );
     assert.deepEqual(body.response_format, { type: "json_object" });
     assert.equal(config.maxRetries, 1);
     assert.equal(config.timeout, options.timeoutMs);
@@ -126,6 +137,64 @@ test("checks complete UTF-8 message size before provider work", async () => {
     },
   );
   await assert.rejects(curate(request), hasCode("PROMPT_TOO_LARGE"));
+});
+
+test("compaction preserves positions, signed times, Unicode and input objects", () => {
+  const input = structuredClone(request);
+  input.words = [
+    { index: 0, text: 'हाय "hello"\\\n', startMs: -7, endMs: 1000 },
+    { index: 1, text: "same", startMs: 100, endMs: 300 },
+    { index: 2, text: "same", startMs: 200, endMs: 400 },
+  ];
+  const original = structuredClone(input);
+  const compact = compactCurationInput(input);
+  assert.equal(compact.words.length, compact.startsMs.length);
+  assert.equal(compact.words.length, compact.endsMs.length);
+  for (const [index, word] of input.words.entries()) {
+    assert.equal(compact.words[index], word.text);
+    assert.equal(compact.startsMs[index], word.startMs);
+    assert.equal(compact.endsMs[index], word.endMs);
+  }
+  assert.deepEqual(input, original);
+  assert.deepEqual(JSON.parse(JSON.stringify(compact)), compact);
+});
+
+test("compact full messages obey the same inclusive UTF-8 byte budget", async () => {
+  const prompt = await readFile(options.promptPath, "utf8");
+  const bytes = Buffer.byteLength(
+    JSON.stringify([
+      { role: "system", content: prompt },
+      { role: "user", content: JSON.stringify(compactCurationInput(request)) },
+    ]),
+    "utf8",
+  );
+  const legacyBytes = Buffer.byteLength(
+    JSON.stringify([
+      { role: "system", content: prompt },
+      { role: "user", content: JSON.stringify(request) },
+    ]),
+    "utf8",
+  );
+  assert.ok(bytes < legacyBytes);
+  let calls = 0;
+  for (const [budget, succeeds] of [
+    [bytes, true],
+    [bytes - 1, false],
+  ] as const) {
+    const curate = await createCurator(
+      { ...options, maxPromptBytes: budget },
+      async () => {
+        calls++;
+        return completion([]);
+      },
+    );
+    if (succeeds) {
+      assert.deepEqual(await curate(request), { candidates: [] });
+    } else {
+      await assert.rejects(curate(request), hasCode("PROMPT_TOO_LARGE"));
+    }
+  }
+  assert.equal(calls, 1);
 });
 
 test("word size is UTF-8 bytes, not JavaScript character count", async () => {
