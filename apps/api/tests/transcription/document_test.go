@@ -55,7 +55,7 @@ func TestNormalizeRejectsInvalidWords(t *testing.T) {
 		"negative":      func(w *response.Word) { w.Start = -.1 },
 		"inverted":      func(w *response.Word) { w.End = .01 },
 		"zero duration": func(w *response.Word) { w.End = w.Start },
-		"source bounds": func(w *response.Word) { w.End = 1.3 },
+		"source bounds": func(w *response.Word) { w.End = 3.3 },
 		"confidence":    func(w *response.Word) { w.Confidence = 1.1 },
 		"empty":         func(w *response.Word) { w.Word = "" },
 		"utf8":          func(w *response.Word) { w.Word = "\xff" },

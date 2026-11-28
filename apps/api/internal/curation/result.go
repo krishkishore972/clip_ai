@@ -48,7 +48,9 @@ func ValidateResult(c Claim, transcript []byte, proposals []Proposal) (*Publicat
 		len(proposals) > c.CandidateCount {
 		return nil, ErrResult
 	}
+
 	hash := sha256.Sum256(transcript)
+
 	if hex.EncodeToString(hash[:]) != c.TranscriptSHA256 {
 		return nil, ErrResult
 	}
@@ -88,12 +90,14 @@ func ValidateResult(c Claim, transcript []byte, proposals []Proposal) (*Publicat
 			!validMetadata(p.Title) || !validMetadata(p.Hook) || !validMetadata(p.Reason) {
 			return nil, ErrResult
 		}
+
 		seen[key] = true
 		start := *doc.Words[p.StartWordIndex].StartMs
 		end := *doc.Words[p.StartWordIndex].EndMs
 		for _, word := range doc.Words[p.StartWordIndex:p.EndWordIndexExclusive] {
 			end = max(end, *word.EndMs)
 		}
+		
 		if start < 0 || end > c.SourceDurationMs ||
 			end-start < c.MinDurationMs || end-start > c.MaxDurationMs {
 			return nil, ErrResult

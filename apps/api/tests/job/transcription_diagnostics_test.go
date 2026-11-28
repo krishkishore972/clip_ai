@@ -39,7 +39,7 @@ func TestTranscriptionLogsSafeValidationDiagnostic(t *testing.T) {
 				word.Word = "private-word"
 				word.End = word.Start
 			case "audio bounds":
-				result.Results.Channels[0].Alternatives[0].Words[0].End = 1.5
+				result.Results.Channels[0].Alternatives[0].Words[0].End = 3.5
 			case "serialization":
 				alt := &result.Results.Channels[0].Alternatives[0]
 				alt.Words = make([]response.Word, 20000)
@@ -88,8 +88,8 @@ func TestTranscriptionLogsSafeValidationDiagnostic(t *testing.T) {
 					t.Fatal("safe duration facts missing")
 				}
 				for field, expected := range map[string]float64{
-					"word_end_seconds": 1.5, "audio_duration_seconds": 1,
-					"overrun_seconds": .5, "allowed_overrun_ms": 250,
+					"word_end_seconds": 3.5, "audio_duration_seconds": 1,
+					"overrun_seconds": 2.5, "allowed_overrun_ms": 2000,
 				} {
 					value, present := line[field]
 					if scenario.name == "audio bounds" {

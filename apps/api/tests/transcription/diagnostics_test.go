@@ -49,7 +49,7 @@ func TestNormalizeOutputDiagnostics(t *testing.T) {
 			in.Results.Channels[0].Alternatives[0].Words[0].End = .1
 		}, 0},
 		{"WORD_AUDIO_BOUNDS", func(in *response.PreRecordedResponse, _ *transcription.Claim) {
-			in.Results.Channels[0].Alternatives[0].Words[0].End = 1.251
+			in.Results.Channels[0].Alternatives[0].Words[0].End = 3.001
 		}, 0},
 		{"WORD_CONFIDENCE", func(in *response.PreRecordedResponse, _ *transcription.Claim) {
 			in.Results.Channels[0].Alternatives[0].Words[0].Confidence = math.NaN()
@@ -63,7 +63,9 @@ func TestNormalizeOutputDiagnostics(t *testing.T) {
 		}, 0},
 		{"WORD_SOURCE_END", func(in *response.PreRecordedResponse, c *transcription.Claim) {
 			c.SourceDurationMs = 700
-			in.Results.Channels[0].Alternatives[0].Words[0].End = 1
+			in.Metadata.Duration = 3
+			c.AudioSizeBytes = 96044
+			in.Results.Channels[0].Alternatives[0].Words[0].End = 3
 		}, 0},
 		{"WORD_ORDER", func(in *response.PreRecordedResponse, _ *transcription.Claim) {
 			alt := &in.Results.Channels[0].Alternatives[0]
@@ -110,7 +112,7 @@ func TestOutputDiagnosticDoesNotExposeWrappedErrors(t *testing.T) {
 }
 
 func TestAudioBoundsDiagnosticPrecisionAndFiniteValues(t *testing.T) {
-	for _, end := range []float64{1.250001, 1.5, math.MaxFloat64} {
+	for _, end := range []float64{3.000001, 3.5, math.MaxFloat64} {
 		in, claim := documentResponse(), documentClaim()
 		in.Results.Channels[0].Alternatives[0].Words[0].End = end
 		_, err := transcription.Normalize(in, claim)
@@ -120,7 +122,7 @@ func TestAudioBoundsDiagnosticPrecisionAndFiniteValues(t *testing.T) {
 		diagnostic := transcription.DiagnoseOutput(errors.Join(errors.New("private-provider-body"), err))
 		if diagnostic.Reason != "WORD_AUDIO_BOUNDS" || diagnostic.WordIndex != 0 ||
 			diagnostic.WordEndSeconds != end || diagnostic.AudioDurationSeconds != 1 ||
-			diagnostic.OverrunSeconds != end-1 || diagnostic.AllowedOverrunMs != 250 {
+			diagnostic.OverrunSeconds != end-1 || diagnostic.AllowedOverrunMs != 2000 {
 			t.Fatalf("wrong numeric diagnostic: %+v", diagnostic)
 		}
 		if math.IsInf(diagnostic.OverrunSeconds, 0) || math.IsNaN(diagnostic.OverrunSeconds) {

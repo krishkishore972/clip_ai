@@ -35,13 +35,18 @@ type Claim struct {
 
 func (c Claim) ValidSource() bool {
 	prefix := "dev-uploads/" + c.AssetID + "/derived/v1/"
+
 	part := strings.TrimSuffix(strings.TrimPrefix(c.AudioKey, prefix), "/audio.wav")
+
 	return identifier.MatchString(c.AssetID) && c.Bucket != "" &&
+
 		strings.HasPrefix(c.AudioKey, prefix) && strings.HasSuffix(c.AudioKey, "/audio.wav") &&
 		identifier.MatchString(part) && checksum.MatchString(c.AudioSHA256) &&
+
 		c.AudioSizeBytes > 0 && c.AudioSizeBytes <= media.MaxPreparedAudioBytes &&
 		c.AudioStartMs >= -media.MaxAudioStartMs && c.AudioStartMs <= media.MaxAudioStartMs &&
 		c.SourceDurationMs > 0 && c.SourceDurationMs <= media.MaxDurationSeconds*1000 &&
+		
 		ValidLanguage(c.Language)
 }
 
